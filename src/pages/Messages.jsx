@@ -1,17 +1,35 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Plus, Search, MessageCircle, ShieldCheck } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { api } from "../lib/api";
-import { Avatar, Empty, fmtTime, GroupIcon, Spinner } from "../components/common";
+import { Avatar, Empty, fmtTime, GroupIcon } from "../components/common";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
-import ChatView, { hydrateConversationsCache, appendMessageToCache, updateMessageInCache } from "./chat/ChatView";
+import ChatView, { hydrateConversationsCache, upsertConversationInCache, appendMessageToCache, updateMessageInCache } from "./chat/ChatView";
 
-function NewDM({ open, onOpenChange }) {
+function NewDM({ open, onOpenChange, convs, onCreated }) {
   const { users, me } = useApp();
   const [q, setQ] = useState("");
   const navigate = useNavigate();
-  const start = async (uid) => { const { data } = await api.post("/conversations/dm", { user_id: uid }); onOpenChange(false); navigate(`/messages/${data.id}`); };
+  const start = async (uid) => {
+    onOpenChange(false);
+    // Check if DM with uid already exists in memory for 0ms navigation
+    const existing = (convs || []).find((c) => {
+      if (!c || c.type !== "dm" || String(c.id).startsWith("conv_circle_")) return false;
+      const mems = c.member_ids || c.members || [];
+      return mems.includes(uid) && mems.includes(me?.user_id);
+    });
+    if (existing) {
+      navigate(`/messages/${existing.id}`);
+      return;
+    }
+    const { data } = await api.post("/conversations/dm", { user_id: uid });
+    if (data && data.id) {
+      upsertConversationInCache(data, me?.user_id);
+      onCreated?.(data);
+      navigate(`/messages/${data.id}`);
+    }
+  };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-surface rounded-3xl max-w-md">
@@ -29,125 +47,226 @@ function NewDM({ open, onOpenChange }) {
   );
 }
 
-const DEFAULT_CONVS = [
-  {
-    id: "conv_circle_user_admin1",
-    type: "dm",
-    name: "Circle (Workspace Assistant)",
-    member_ids: ["user_circle_assistant", "user_admin1"],
-    unread: 0,
-    last_message_preview: "Halo! Saya Circle, asisten workspace Anda.",
-    last_message_at: new Date().toISOString()
-  },
-  { id: "group_official_marketing", type: "group", name: "Marketing", is_verified: true, member_ids: ["user_admin1"], unread: 0, last_message_preview: "No messages yet" },
-  { id: "group_official_sales", type: "group", name: "Sales", is_verified: true, member_ids: ["user_admin1"], unread: 0, last_message_preview: "No messages yet" },
-  { id: "group_official_it", type: "group", name: "IT", is_verified: true, member_ids: ["user_admin1"], unread: 0, last_message_preview: "No messages yet" },
-  { id: "group_official_finance", type: "group", name: "Finance", is_verified: true, member_ids: ["user_admin1"], unread: 0, last_message_preview: "No messages yet" },
-  { id: "group_official_legal", type: "group", name: "Legal", is_verified: true, member_ids: ["user_admin1"], unread: 0, last_message_preview: "No messages yet" },
-  { id: "group_official_hrga", type: "group", name: "HRGA", is_verified: true, member_ids: ["user_admin1"], unread: 0, last_message_preview: "No messages yet" }
-];
-
-let CONVS_CACHE = DEFAULT_CONVS;
-try {
-  const saved = localStorage.getItem("circle_convs_cache");
-  if (saved) {
-    const parsed = JSON.parse(saved);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      CONVS_CACHE = parsed;
-      hydrateConversationsCache(parsed);
-    }
-  }
-} catch {}
+function getDefaultConvsForUser(uid) {
+  const userId = uid || "user_admin1";
+  return [
+    {
+      id: `conv_circle_${userId}`,
+      type: "dm",
+      name: "Circle (Workspace Assistant)",
+      member_ids: ["user_circle_assistant", userId],
+      unread: 0,
+      last_message_preview: "Halo! Saya Circle, asisten workspace Anda.",
+      last_message_at: new Date().toISOString()
+    },
+    { id: "group_official_marketing", type: "group", name: "Marketing", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" },
+    { id: "group_official_sales", type: "group", name: "Sales", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" },
+    { id: "group_official_it", type: "group", name: "IT", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" },
+    { id: "group_official_finance", type: "group", name: "Finance", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" },
+    { id: "group_official_legal", type: "group", name: "Legal", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" },
+    { id: "group_official_hrga", type: "group", name: "HRGA", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" }
+  ];
+}
 
 export default function Messages() {
   const { cid } = useParams();
-  const { me, userMap, subscribe } = useApp();
+  const { me, userMap, subscribe, ws } = useApp();
   const [convs, setConvs] = useState(() => {
     try {
-      const saved = localStorage.getItem("circle_convs_cache");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      const uid = me?.user_id;
+      if (uid) {
+        const saved = localStorage.getItem(`circle_convs_cache_${uid}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
       }
     } catch {}
-    return Array.isArray(CONVS_CACHE) && CONVS_CACHE.length > 0 ? CONVS_CACHE : DEFAULT_CONVS;
+    return getDefaultConvsForUser(me?.user_id);
   });
   const [q, setQ] = useState("");
   const [tab, setTab] = useState("all");
   const [dm, setDm] = useState(false);
   const navigate = useNavigate();
 
-  const load = () => api.get("/conversations").then((r) => {
-    const arr = Array.isArray(r.data) ? r.data : (Array.isArray(r.data?.conversations) ? r.data.conversations : []);
-    if (arr.length > 0) {
-      setConvs(arr);
-      CONVS_CACHE = arr;
-      hydrateConversationsCache(arr);
-    }
-  }).catch(() => {});
+  const load = useCallback(() => {
+    if (!me?.user_id) return Promise.resolve();
+    return api.get("/conversations").then((r) => {
+      const arr = Array.isArray(r.data) ? r.data : (Array.isArray(r.data?.conversations) ? r.data.conversations : null);
+      if (Array.isArray(arr)) {
+        setConvs(arr);
+        hydrateConversationsCache(arr, me.user_id);
+      }
+    }).catch(() => {});
+  }, [me?.user_id]);
 
-  useEffect(() => { load(); }, [cid]);
+  // Load conversations once per logged-in user (NOT on every cid click)
+  useEffect(() => {
+    if (!me?.user_id) return;
+    try {
+      const saved = localStorage.getItem(`circle_convs_cache_${me.user_id}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setConvs(parsed);
+        } else {
+          setConvs(getDefaultConvsForUser(me.user_id));
+        }
+      } else {
+        setConvs(getDefaultConvsForUser(me.user_id));
+      }
+    } catch {}
+    load();
+  }, [me?.user_id, load]);
+
+  // Clear unread badge in 0ms when opening a conversation
+  const handleRead = useCallback((readCid) => {
+    if (!readCid) return;
+    setConvs((prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      const target = list.find((c) => c && c.id === readCid);
+      if (!target || !target.unread) return list;
+      const next = list.map((c) => (c && c.id === readCid ? { ...c, unread: 0 } : c));
+      if (me?.user_id) {
+        try { localStorage.setItem(`circle_convs_cache_${me.user_id}`, JSON.stringify(next)); } catch {}
+      }
+      return next;
+    });
+  }, [me?.user_id]);
+
+  useEffect(() => {
+    if (cid) handleRead(cid);
+  }, [cid, handleRead]);
 
   useEffect(() => subscribe((e) => { 
-    if (e.type === "message:new") {
+    if (e.type === "message:new" && e.data) {
       const d = e.data;
+      if (Array.isArray(d?.member_ids) && me?.user_id && !d.member_ids.includes(me.user_id)) {
+        return;
+      }
       appendMessageToCache(d);
+      let foundInList = false;
       setConvs((prev) => {
         const list = Array.isArray(prev) ? prev : [];
         const idx = list.findIndex((c) => c && c.id === d.conversation_id);
         if (idx !== -1) {
+          foundInList = true;
+          const curMsgs = Array.isArray(list[idx].messages) ? list[idx].messages : [];
+          const nextMsgs = curMsgs.some((m) => m.id === d.id) ? curMsgs : [...curMsgs, d];
           const updated = {
             ...list[idx],
-            last_message_preview: d.text || "Pesan baru",
+            messages: nextMsgs,
+            last_message_preview: d.type === "sticker" ? "[Stiker]" : (d.text || "Pesan baru"),
             last_message_at: d.created_at || new Date().toISOString(),
-            unread: d.sender_id !== me?.user_id && cid !== d.conversation_id ? (list[idx].unread || 0) + 1 : list[idx].unread
+            unread: d.sender_id !== me?.user_id && cid !== d.conversation_id ? (list[idx].unread || 0) + 1 : 0
           };
           const next = [updated, ...list.filter((c) => c && c.id !== d.conversation_id)];
-          CONVS_CACHE = next;
-          try { localStorage.setItem("circle_convs_cache", JSON.stringify(next)); } catch {}
+          if (me?.user_id) {
+            try { localStorage.setItem(`circle_convs_cache_${me.user_id}`, JSON.stringify(next)); } catch {}
+          }
           return next;
         }
         return list;
       });
-      load();
+      if (!foundInList) {
+        load();
+      }
     } else if (e.type === "message:update") {
       updateMessageInCache(e.data);
-    } else if (["read", "conversation:new", "conversations:changed", "access_requests:changed"].includes(e.type)) {
+    } else if (e.type === "read" && e.data) {
+      if (e.data.user_id === me?.user_id) {
+        handleRead(e.data.conversation_id);
+      }
+    } else if ((e.type === "conversation:upsert" || e.type === "group:updated") && e.data) {
+      const d = e.data;
+      const mems = d.member_ids || d.members || [];
+      if (me?.user_id && mems.length > 0 && !mems.includes(me.user_id)) return;
+      upsertConversationInCache(d, me?.user_id);
+      setConvs((prev) => {
+        const list = Array.isArray(prev) ? prev : [];
+        const idx = list.findIndex((c) => c && c.id === d.id);
+        const next = idx !== -1
+          ? list.map((c, i) => (i === idx ? { ...c, ...d } : c))
+          : [d, ...list];
+        if (me?.user_id) {
+          try { localStorage.setItem(`circle_convs_cache_${me.user_id}`, JSON.stringify(next)); } catch {}
+        }
+        return next;
+      });
+    } else if (e.type === "group:deleted" && e.id) {
+      setConvs((prev) => {
+        const next = (Array.isArray(prev) ? prev : []).filter((c) => c && c.id !== e.id);
+        if (me?.user_id) {
+          try { localStorage.setItem(`circle_convs_cache_${me.user_id}`, JSON.stringify(next)); } catch {}
+        }
+        return next;
+      });
+    } else if (["conversation:new", "conversations:changed", "access_requests:changed"].includes(e.type)) {
       load();
     }
-  }), [subscribe, me?.user_id, cid]); // eslint-disable-line
+  }), [subscribe, me?.user_id, cid, load, handleRead]);
 
-  const { ws } = useApp();
   const safeConvs = Array.isArray(convs) ? convs : [];
-  const named = useMemo(() => safeConvs.map((c) => {
-    if (!c) return { id: `conv_${Math.random()}`, title: "Conversation", other: null };
-    const mems = Array.isArray(c.member_ids) ? c.member_ids : (Array.isArray(c.members) ? c.members : []);
-    const otherId = mems.find((x) => x !== me?.user_id) || me?.user_id;
-    const botAvatar = ws?.assistant_avatar || "https://api.dicebear.com/7.x/bottts/svg?seed=CircleWorkspace&backgroundColor=FF5364";
-    const botName = ws?.assistant_name || "Circle";
+  const named = useMemo(() => safeConvs
+    .filter((c) => {
+      if (!c) return false;
+      const mems = Array.isArray(c.member_ids) ? c.member_ids : (Array.isArray(c.members) ? c.members : []);
+      if (c.type === "dm" && me?.user_id && mems.length > 0 && !mems.includes(me.user_id)) {
+        return false;
+      }
+      return true;
+    })
+    .map((c) => {
+      const mems = Array.isArray(c.member_ids) ? c.member_ids : (Array.isArray(c.members) ? c.members : []);
+      const otherId = mems.find((x) => x && x !== me?.user_id) || me?.user_id;
+      const botAvatar = ws?.assistant_avatar || "https://api.dicebear.com/7.x/bottts/svg?seed=CircleWorkspace&backgroundColor=FF5364";
+      const botName = ws?.assistant_name || "Circle";
 
-    const isBotDM = c.type === "dm" && (otherId === "user_circle_assistant" || c.id?.includes("circle"));
-    const rawOther = userMap ? userMap[otherId] : null;
-    const other = c.type === "dm" ? (
-      isBotDM ? {
-        ...(rawOther || {}),
-        user_id: "user_circle_assistant",
-        name: botName,
-        job_title: "Workspace AI Assistant",
-        avatar: botAvatar,
-        picture: botAvatar
-      } : rawOther
-    ) : null;
+      const isBotDM = c.type === "dm" && (otherId === "user_circle_assistant" || c.id?.startsWith("conv_circle_"));
+      const rawOther = userMap ? userMap[otherId] : null;
+      const other = c.type === "dm" ? (
+        isBotDM ? {
+          ...(rawOther || {}),
+          user_id: "user_circle_assistant",
+          name: botName,
+          job_title: "Workspace AI Assistant",
+          avatar: botAvatar,
+          picture: botAvatar
+        } : rawOther
+      ) : null;
 
-    let title = c.name || "Group Chat";
-    if (c.type === "dm") title = other?.name || botName;
+      let title = c.name || "Group Chat";
+      if (c.type === "dm") title = other?.name || (isBotDM ? botName : (c.name && c.name !== "Direct Message" ? c.name : "Direct Message"));
 
-    return {
-      ...c,
-      other,
-      title
-    };
-  }), [safeConvs, userMap, me, ws?.assistant_name, ws?.assistant_avatar]);
+      const msgs = Array.isArray(c.messages) ? c.messages : [];
+      const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+      const previewText = c.last_message_preview && c.last_message_preview !== "No messages yet"
+        ? c.last_message_preview
+        : (lastMsg ? (lastMsg.type === "sticker" ? "[Stiker]" : (lastMsg.text || "Attachment")) : "");
+      const hasActivity = Boolean(previewText) || msgs.length > 0 || (c.type === "dm" && Boolean(c.last_message_at));
+      const effectiveTime = lastMsg?.created_at || (hasActivity ? c.last_message_at : null);
+      const sortTs = effectiveTime ? new Date(effectiveTime).getTime() : 0;
+
+      return {
+        ...c,
+        other,
+        title,
+        last_message_preview: previewText,
+        last_message_at: effectiveTime,
+        _hasActivity: hasActivity,
+        _sortTs: Number.isNaN(sortTs) ? 0 : sortTs
+      };
+    })
+    .sort((a, b) => {
+      if (a._hasActivity !== b._hasActivity) {
+        return a._hasActivity ? -1 : 1;
+      }
+      if (b._sortTs !== a._sortTs) {
+        return b._sortTs - a._sortTs;
+      }
+      return (a.title || "").localeCompare(b.title || "");
+    }), [safeConvs, userMap, me, ws?.assistant_name, ws?.assistant_avatar]);
+
   const list = named.filter((c) => (tab === "all" || (tab === "dm" ? c.type === "dm" : c.type === "group")) && (c.title || "").toLowerCase().includes(q.toLowerCase()));
   return (
     <div className={`flex ${cid ? "h-[100dvh]" : "h-[calc(100dvh-7.5rem)]"} md:h-screen animate-crossfade`} data-testid="messages-page">
@@ -157,13 +276,13 @@ export default function Messages() {
             <button onClick={() => setDm(true)} className="btn-accent flex h-10 w-10 items-center justify-center" aria-label="New message" data-testid="new-message-btn"><Plus size={18} /></button></div>
           <div className="mt-3 flex items-center gap-2 rounded-xl border bg-surface2 px-3"><Search size={15} className="text-sub" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter conversations" className="h-10 flex-1 bg-transparent text-sm outline-none" data-testid="conversation-filter-input" /></div>
           <div className="mt-3 flex gap-1 rounded-xl bg-surface2 p-1 text-xs font-semibold">
-            {[["all", "All"], ["dm", "Direct"], ["group", "Groups"]].map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={`flex-1 rounded-lg py-1.5 transition-all duration-160 ease-out ${tab === k ? "bg-surface text-ink shadow-sm font-bold" : "text-sub hover:text-ink"}`} data-testid={`conv-tab-${k}`}>{l}</button>)}
+            {[["all", "All"], ["dm", "Direct"], ["group", "Groups"]].map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={`flex-1 rounded-lg py-1.5 transition-colors cursor-pointer ${tab === k ? "bg-surface text-ink shadow-sm font-bold" : "text-sub hover:text-ink"}`} data-testid={`conv-tab-${k}`}>{l}</button>)}
           </div>
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-2 scroll-thin">
           {list.map((c) => (
             <button key={c.id} onClick={() => navigate(`/messages/${c.id}`)} data-testid={`conversation-item-${c.id}`}
-              className={`flex w-full items-center gap-3 rounded-2xl p-2.5 text-left transition-colors ${cid === c.id ? "bg-soft-red" : "hover:bg-surface2"}`}>
+              className={`flex w-full items-center gap-3 rounded-2xl p-2.5 text-left transition-colors cursor-pointer ${cid === c.id ? "bg-soft-red" : "hover:bg-surface2"}`}>
               {c.other ? <Avatar user={c.other} size={42} /> : <GroupIcon c={c} size={42} />}
               <span className="min-w-0 flex-1">
                 <span className="flex items-center justify-between gap-2">
@@ -181,9 +300,10 @@ export default function Messages() {
         </div>
       </aside>
       <section className={`${cid ? "flex" : "hidden lg:flex"} min-w-0 flex-1`}>
-        {cid ? <ChatView cid={cid} onChange={load} /> : <div className="flex flex-1 items-center justify-center"><Empty icon={MessageCircle} title="Pick a conversation" text="Your messages stay private to the people in each conversation." /></div>}
+        {cid ? <ChatView cid={cid} onChange={load} onRead={handleRead} /> : <div className="flex flex-1 items-center justify-center"><Empty icon={MessageCircle} title="Pick a conversation" text="Your messages stay private to the people in each conversation." /></div>}
       </section>
-      <NewDM open={dm} onOpenChange={setDm} />
+      <NewDM open={dm} onOpenChange={setDm} convs={convs} onCreated={(newConv) => setConvs((prev) => [newConv, ...(prev || []).filter((c) => c.id !== newConv.id)])} />
     </div>
   );
 }
+

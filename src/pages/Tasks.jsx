@@ -201,7 +201,7 @@ export function TaskWorkspace({ projectId, compactHeader }) {
   const [selected, setSelected] = useState([]);
   const [create, setCreate] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
-  const openId = params.get("task");
+  const openId = params.get("task") || params.get("id");
   const query = useCallback(() => ({
     view: saved,
     ...Object.fromEntries(Object.entries(f).filter(([, v]) => v)),

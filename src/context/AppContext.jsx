@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { api, wsUrl } from "../lib/api";
+import { api, wsUrl, fileUrl, setAuthUserId } from "../lib/api";
 import { applyTheme, buildTheme } from "../lib/theme";
 import { getTranslation } from "../lib/i18n";
 import { playSound } from "../lib/sound";
-import { hydrateConversationsCache, appendMessageToCache, updateMessageInCache } from "../pages/chat/ChatView";
+import { hydrateConversationsCache, upsertConversationInCache, appendMessageToCache, updateMessageInCache, clearChatCache } from "../pages/chat/ChatView";
+import { hydratePostsCache } from "../pages/Beranda";
+import { hydrateGroupsCache, upsertGroupInCache } from "../pages/Groups";
 import { setCachedDriveShortcuts } from "../data/initialDriveShortcuts";
 
 const AppCtx = createContext(null);
@@ -16,7 +18,7 @@ const DEFAULT_USERS = [
 ];
 
 try {
-  if (typeof window !== "undefined" && localStorage.getItem("circle_prod_clean_v4") !== "1") {
+  if (typeof window !== "undefined" && localStorage.getItem("circle_prod_clean_v5") !== "1") {
     const keysToClear = [
       "circle_tasks_cache",
       "circle_cache_tasks",
@@ -26,6 +28,7 @@ try {
       "circle_cache_posts",
       "circle_cache_meetings",
       "circle_cache_conversations",
+      "circle_convs_cache",
       "circle_drive_shortcuts_cache",
       "circle_stats_team_cache",
       "circle_stats_team_cache_7d",
@@ -38,35 +41,58 @@ try {
       "circle_session_cache"
     ];
     keysToClear.forEach((k) => localStorage.removeItem(k));
-    localStorage.setItem("circle_prod_clean_v4", "1");
+    localStorage.setItem("circle_prod_clean_v5", "1");
   }
 } catch {}
 
-const DEFAULT_SESSION = {
-  user: DEFAULT_USERS[0],
-  workspace: {
-    name: "CIRCLE",
-    subtitle: "CIRCLE Workspace",
-    assistant_name: "Circle",
-    assistant_avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=CircleWorkspace&backgroundColor=FF5364",
-    task_statuses: ["todo", "in_progress", "in_review", "done"],
-    divisions: ["Management", "Engineering", "Product", "Design", "Marketing", "Sales", "IT", "Finance", "Legal", "HRGA", "Operations"],
-    org_levels: ["Executive", "Division", "Department", "Team"]
-  },
-  prefs: { theme_mode: "light" }
-};
-
 export function AppProvider({ children }) {
-  const [session, setSession] = useState(() => {
+  const [session, setSessionState] = useState(() => {
     try {
-      const cached = localStorage.getItem("circle_session_cache");
+      const tabCached = sessionStorage.getItem("circle_tab_session_cache");
+      const cached = tabCached || localStorage.getItem("circle_session_cache");
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (parsed && parsed.user && parsed.user.role === "super_admin") return parsed;
+        if (parsed && parsed.user?.user_id) {
+          setAuthUserId(parsed.user.user_id);
+          return parsed;
+        }
       }
     } catch {}
-    return DEFAULT_SESSION;
+    setAuthUserId(null);
+    return null;
   });
+
+  const setSession = useCallback((updater) => {
+    setSessionState((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      const prevUid = prev?.user?.user_id || null;
+      const nextUid = next?.user?.user_id || null;
+
+      if (prevUid !== nextUid) {
+        clearChatCache();
+        try {
+          localStorage.removeItem("circle_convs_cache");
+          localStorage.removeItem("circle_cache_conversations");
+        } catch {}
+      }
+
+      setAuthUserId(nextUid);
+
+      try {
+        if (next && nextUid) {
+          const serialized = JSON.stringify(next);
+          sessionStorage.setItem("circle_tab_session_cache", serialized);
+          localStorage.setItem("circle_session_cache", serialized);
+        } else {
+          sessionStorage.removeItem("circle_tab_session_cache");
+          localStorage.removeItem("circle_session_cache");
+        }
+      } catch {}
+
+      return next;
+    });
+  }, []);
+
   const [users, setUsers] = useState(() => {
     try {
       const cached = localStorage.getItem("circle_users_cache");
@@ -103,13 +129,18 @@ export function AppProvider({ children }) {
   const prefs = useMemo(() => session?.prefs || {}, [session?.prefs]);
 
   const loadAll = useCallback(async () => {
-    const [u, l, n, c, t, ds] = await Promise.all([
+    if (!me?.user_id) return;
+    const currentUid = me.user_id;
+    const [u, l, n, c, t, ds, p, tr, g] = await Promise.all([
       api.get("/users").catch(() => ({ data: null })),
       api.get("/labels").catch(() => ({ data: null })),
       api.get("/notifications").catch(() => ({ data: null })),
       api.get("/conversations").catch(() => ({ data: null })),
       api.get("/tasks").catch(() => ({ data: null })),
-      api.get("/drive-shortcuts").catch(() => ({ data: null }))
+      api.get("/drive-shortcuts").catch(() => ({ data: null })),
+      api.get("/posts").catch(() => ({ data: null })),
+      api.get("/posts/trending").catch(() => ({ data: null })),
+      api.get("/groups/browse").catch(() => ({ data: null }))
     ]);
     if (Array.isArray(u.data) && u.data.length > 0) {
       setUsers(u.data);
@@ -122,11 +153,11 @@ export function AppProvider({ children }) {
     }
     if (n.data) {
       setUnread(n.data.unread || 0);
-      try { localStorage.setItem("circle_notifications_cache", JSON.stringify(n.data)); } catch {}
+      try { localStorage.setItem(`circle_notifications_cache_${currentUid}`, JSON.stringify(n.data)); } catch {}
     }
     if (Array.isArray(c.data)) {
-      hydrateConversationsCache(c.data);
-      try { localStorage.setItem("circle_cache_conversations", JSON.stringify(c.data)); } catch {}
+      hydrateConversationsCache(c.data, currentUid);
+      try { localStorage.setItem(`circle_convs_cache_${currentUid}`, JSON.stringify(c.data)); } catch {}
     }
     if (Array.isArray(t.data)) {
       try {
@@ -137,7 +168,13 @@ export function AppProvider({ children }) {
     if (Array.isArray(ds.data)) {
       setCachedDriveShortcuts(ds.data);
     }
-  }, []);
+    if (Array.isArray(p.data) || Array.isArray(tr.data)) {
+      hydratePostsCache(Array.isArray(p.data) ? p.data : undefined, Array.isArray(tr.data) ? tr.data : undefined);
+    }
+    if (Array.isArray(g.data) && g.data.length > 0) {
+      hydrateGroupsCache(g.data);
+    }
+  }, [me?.user_id]);
 
   const checkAuth = useCallback(async () => {
     let cachedPrefs = {};
@@ -165,22 +202,20 @@ export function AppProvider({ children }) {
         setCachedDriveShortcuts(data.drive_shortcuts);
       }
       try {
-        localStorage.setItem("circle_session_cache", JSON.stringify(nextSession));
         localStorage.setItem("circle_user_prefs", JSON.stringify(mergedPrefs));
       } catch {}
     } catch {
       setSession(null);
-      try { localStorage.removeItem("circle_session_cache"); } catch {}
     }
-  }, []);
+  }, [setSession]);
+
+  // Removed automatic checkAuth() on mount so users always land on Login page first
 
   useEffect(() => {
-    if (window.location.hash?.includes("session_id=")) return;
-    checkAuth();
-  }, [checkAuth]);
-
-  useEffect(() => {
-    if (me?.user_id) loadAll().catch(() => {});
+    if (me?.user_id) {
+      setAuthUserId(me.user_id);
+      loadAll().catch(() => {});
+    }
   }, [me?.user_id, loadAll]);
 
   useEffect(() => {
@@ -254,9 +289,16 @@ export function AppProvider({ children }) {
           if (document.hidden && window.Notification?.permission === "granted") new Notification(evt.data.title, { body: evt.data.body });
         }
         if (evt.type === "message:new" && evt.data) {
+          // Ignore private messages meant for conversations this user is not part of
+          if (Array.isArray(evt.data.member_ids) && me?.user_id && !evt.data.member_ids.includes(me.user_id)) {
+            return;
+          }
+          if (String(evt.data.conversation_id || "").startsWith("conv_circle_") && evt.data.conversation_id !== `conv_circle_${me?.user_id}`) {
+            return;
+          }
           // Always cache incoming messages immediately in memory & localStorage so opening any chat has 0ms delay
           appendMessageToCache(evt.data);
-          if (evt.data.sender_id !== me?.user_id) {
+          if (evt.data.sender_id !== me?.user_id && !evt.data.silent_popup) {
             const isCurrentlyInThisChat = window.location.pathname === `/messages/${evt.data.conversation_id}`;
             if (!isCurrentlyInThisChat) {
               const userMapObj = Object.fromEntries(users.map((u) => [u.user_id, u]));
@@ -276,18 +318,23 @@ export function AppProvider({ children }) {
         if (evt.type === "message:update" && evt.data) {
           updateMessageInCache(evt.data);
         }
+        if (evt.type === "conversation:upsert" && evt.data) {
+          upsertConversationInCache(evt.data, me?.user_id);
+        }
+        if ((evt.type === "groups:changed" || evt.type === "group:updated") && evt.data) {
+          upsertGroupInCache(evt.data);
+          upsertConversationInCache({ ...evt.data, type: "group" }, me?.user_id);
+        }
         if (evt.type === "conversations:changed") {
           api.get("/conversations").then((r) => {
-            if (Array.isArray(r.data)) hydrateConversationsCache(r.data);
+            if (Array.isArray(r.data)) hydrateConversationsCache(r.data, me?.user_id);
           }).catch(() => {});
         }
         if (evt.type === "workspace:changed") {
           api.get("/workspace").then((r) => {
             setSession((s) => {
               if (!s) return s;
-              const next = { ...s, workspace: r.data };
-              try { localStorage.setItem("circle_session_cache", JSON.stringify(next)); } catch {}
-              return next;
+              return { ...s, workspace: r.data };
             });
           }).catch(() => {});
         }
@@ -405,7 +452,7 @@ export function AppProvider({ children }) {
       },
       checkAuth,
     };
-  }, [session, me, ws, prefs, users, labels, online, unread, themeDraft, checkAuth]);
+  }, [session, setSession, me, ws, prefs, users, labels, online, unread, topNotif, themeDraft, checkAuth]);
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }

@@ -24,13 +24,11 @@ export function PWAInstallButton({ variant = "default", compact = false }) {
   }
 
   const handleInstallClick = async () => {
-    if (isInstallable) {
-      const accepted = await install();
-      if (accepted) {
-        toast.success("Aplikasi CIRCLE berhasil dipasang ke perangkat Anda!");
-      }
-    } else {
+    const accepted = await install();
+    if (!accepted) {
       setShowGuide(true);
+    } else {
+      toast.success("Aplikasi CIRCLE berhasil dipasang ke perangkat Anda!");
     }
   };
 

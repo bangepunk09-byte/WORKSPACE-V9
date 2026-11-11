@@ -344,12 +344,12 @@ export default function Settings() {
   ];
   const [tab, setTab] = useState("profile");
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10 animate-crossfade" data-testid="settings-page">
+    <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10 animate-crossfade" data-testid="settings-page">
       <PageHeader icon={Cog} title="Settings" subtitle="Personalize CIRCLE and manage your workspace." />
-      <div className="mb-5">
+      <div className="mb-5 w-full">
         <PWAInstallButton variant="card" />
       </div>
-      <div className="flex flex-col gap-5 sm:gap-6 lg:flex-row">
+      <div className="flex w-full flex-col gap-5 sm:gap-6 lg:flex-row">
         <nav className="flex gap-1.5 overflow-x-auto pb-1 scroll-thin lg:w-56 lg:shrink-0 lg:flex-col lg:pb-0">
           {tabs.map(([k, l]) => (
             <button
@@ -366,7 +366,7 @@ export default function Settings() {
             </button>
           ))}
         </nav>
-        <div className="min-w-0 flex-1 max-w-3xl">
+        <div className="min-w-0 flex-1">
           {tab === "profile" && <UserProfileSettings />}
           {tab === "appearance" && <Appearance />}
           {tab === "copywriting" && <CopywritingSettings />}

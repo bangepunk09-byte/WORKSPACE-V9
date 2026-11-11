@@ -548,7 +548,17 @@
       "member_count": 2
     }
   ],
-  "messages": [],
+  "messages": [
+    {
+      "id": "msg_test_1794394534072",
+      "conversation_id": "conv_circle_user_admin1",
+      "sender_id": "user_circle_assistant",
+      "user_id": "user_circle_assistant",
+      "text": "Halo! Ini adalah pesan tes dari sistem. Apakah tampilan bubble chat sudah benar di sebelah kiri?",
+      "type": "text",
+      "created_at": "2026-11-11T10:55:34.072Z"
+    }
+  ],
   "posts": [
     {
       "id": "pst_init_1",

@@ -31,12 +31,24 @@ export function GroupDialog({ open, onOpenChange, group, onSaved }) {
   const [f, setF] = useState({ name: "", description: "", group_type: "public", location: "", image: "", member_ids: [] });
   useEffect(() => { if (open) setF(group ? { ...group } : { name: "", description: "", group_type: "public", location: "", image: "", member_ids: [] }); }, [open, group]);
   const save = async () => {
+    if (!f.name?.trim()) {
+      toast.error("Nama grup wajib diisi");
+      return;
+    }
     try {
-      const body = { name: f.name, description: f.description, group_type: f.group_type, location: f.location, image: f.image };
-      const { data } = group ? await api.patch(`/groups/${group.id}`, body) : await api.post("/groups", { ...body, member_ids: f.member_ids });
-      toast.success(group ? "Group updated" : "Group created");
-      onOpenChange(false);
-      onSaved?.(data);
+      const body = { name: f.name.trim(), description: f.description, group_type: f.group_type, location: f.location, image: f.image };
+      if (group) {
+        onOpenChange(false);
+        onSaved?.({ ...group, ...body });
+        const { data } = await api.patch(`/groups/${group.id}`, body);
+        toast.success("Group updated");
+        if (data) onSaved?.(data);
+      } else {
+        const { data } = await api.post("/groups", { ...body, member_ids: f.member_ids });
+        toast.success("Group created");
+        onOpenChange(false);
+        onSaved?.(data);
+      }
     } catch (e) { toast.error(errMsg(e)); }
   };
   const img = async (e) => { try { const up = await uploadFile(e.target.files[0]); setF({ ...f, image: up.id }); } catch (er) { toast.error(errMsg(er)); } };

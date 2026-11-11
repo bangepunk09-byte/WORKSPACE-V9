@@ -106,7 +106,7 @@ function Sidebar({ compact, setCompact, openSearch }) {
   };
   return (
     <aside
-      className={`hidden md:flex sticky top-0 h-screen shrink-0 flex-col border-r bg-sidebar transition-[width] duration-200 ${
+      className={`hidden md:flex fixed inset-y-0 left-0 z-40 h-screen shrink-0 flex-col border-r bg-sidebar transition-[width] duration-200 ${
         compact ? "w-[76px]" : "w-[248px]"
       }`}
       data-testid="sidebar"
@@ -510,7 +510,7 @@ export default function Shell() {
       <OfflineIndicator />
       <div className="flex min-h-screen w-full bg-background overflow-x-hidden">
         <Sidebar compact={compact} setCompact={setCompact} openSearch={() => setSearch(true)} />
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className={`flex min-w-0 flex-1 flex-col transition-[margin] duration-200 ${compact ? "md:ml-[76px]" : "md:ml-[248px]"} ${notifOpen ? "md:mr-[320px] xl:md:mr-[360px]" : "md:mr-[60px]"}`}>
           {!chatOpen && <MobileNav openSearch={() => setSearch(true)} />}
           <main className={`min-w-0 flex-1 ${chatOpen ? "" : "pb-20 md:pb-0"}`}>
             <div className="min-h-full">

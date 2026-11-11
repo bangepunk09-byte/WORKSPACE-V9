@@ -19,23 +19,32 @@ export default function TopNotificationPopup({ notif, onClose }) {
   const isPaused = paused || busy || replyOpen;
 
   useEffect(() => {
+    if (notif) {
+      setProgress(100);
+      setReplyOpen(false);
+      setReplyText("");
+      setPaused(false);
+      setBusy(false);
+    }
+  }, [notif?.id, notif?.title, notif?.body]);
+
+  useEffect(() => {
     if (!notif || isPaused) return undefined;
     const interval = 100;
     const step = (interval / DURATION) * 100;
 
     const timer = setInterval(() => {
-      setProgress((prev) => {
-        if (prev <= step) {
-          clearInterval(timer);
-          onClose();
-          return 0;
-        }
-        return prev - step;
-      });
+      setProgress((prev) => Math.max(0, prev - step));
     }, interval);
 
     return () => clearInterval(timer);
-  }, [isPaused, notif, onClose]);
+  }, [isPaused, notif]);
+
+  useEffect(() => {
+    if (notif && progress <= 0) {
+      onClose?.();
+    }
+  }, [notif, progress, onClose]);
 
   if (!notif) return null;
 
@@ -113,7 +122,7 @@ export default function TopNotificationPopup({ notif, onClose }) {
           )}
           <div className="min-w-0 flex-1">
             <h4 className="text-sm font-bold text-ink truncate leading-tight">{title || "Notifikasi Baru"}</h4>
-            <p className="text-xs text-sub truncate mt-0.5">{body || "Ada pembaruan di CIRCLE Workspace."}</p>
+            <p className="text-xs text-sub line-clamp-2 whitespace-normal break-words mt-0.5">{body || "Ada pembaruan di CIRCLE Workspace."}</p>
           </div>
         </div>
 

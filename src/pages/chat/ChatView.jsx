@@ -72,9 +72,16 @@ function Panel({ conv, reload, onClose }) {
 
 export const CHAT_CACHE = {};
 
-export function hydrateConversationsCache(convs) {
+export function clearChatCache() {
+  Object.keys(CHAT_CACHE).forEach((k) => delete CHAT_CACHE[k]);
+}
+
+export function hydrateConversationsCache(convs, userId) {
   if (!Array.isArray(convs)) return;
   try {
+    if (userId) {
+      localStorage.setItem(`circle_convs_cache_${userId}`, JSON.stringify(convs));
+    }
     localStorage.setItem("circle_convs_cache", JSON.stringify(convs));
   } catch {}
   convs.forEach((c) => {
@@ -87,6 +94,25 @@ export function hydrateConversationsCache(convs) {
       } catch {}
     }
   });
+}
+
+export function upsertConversationInCache(conv, userId) {
+  if (!conv || !conv.id) return;
+  const merged = { ...(CHAT_CACHE[`conv_${conv.id}`] || {}), ...conv };
+  CHAT_CACHE[`conv_${conv.id}`] = merged;
+  try {
+    const key = userId ? `circle_convs_cache_${userId}` : "circle_convs_cache";
+    const raw = localStorage.getItem(key) || localStorage.getItem("circle_convs_cache");
+    const list = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(list)) {
+      const idx = list.findIndex((c) => c && c.id === conv.id);
+      const next = idx !== -1
+        ? list.map((c, i) => (i === idx ? { ...c, ...merged } : c))
+        : [merged, ...list];
+      if (userId) localStorage.setItem(`circle_convs_cache_${userId}`, JSON.stringify(next));
+      localStorage.setItem("circle_convs_cache", JSON.stringify(next));
+    }
+  } catch {}
 }
 
 export function appendMessageToCache(msg) {
@@ -117,7 +143,8 @@ export function updateMessageInCache(msg) {
 const getInitialConv = (cid, me) => {
   if (CHAT_CACHE[`conv_${cid}`]) return CHAT_CACHE[`conv_${cid}`];
   try {
-    const saved = localStorage.getItem("circle_convs_cache");
+    const uid = me?.user_id;
+    const saved = (uid && localStorage.getItem(`circle_convs_cache_${uid}`)) || localStorage.getItem("circle_convs_cache");
     if (saved) {
       const arr = JSON.parse(saved);
       if (Array.isArray(arr)) {
@@ -176,7 +203,7 @@ export const getInitialMsgs = (cid) => {
   return [];
 };
 
-export default function ChatView({ cid, onChange }) {
+export default function ChatView({ cid, onChange, onRead }) {
   const { me, ws, userMap, subscribe, online } = useApp();
   const [conv, setConv] = useState(() => getInitialConv(cid, me));
   const [msgs, setMsgs] = useState(() => getInitialMsgs(cid));
@@ -211,37 +238,64 @@ export default function ChatView({ cid, onChange }) {
     }
   }).catch(() => {});
 
-  const markRead = () => api.post(`/conversations/${cid}/read`).then(onChange).catch(() => {});
+  const markRead = () => {
+    if (CHAT_CACHE[`conv_${cid}`]) {
+      CHAT_CACHE[`conv_${cid}`].unread = 0;
+    }
+    onRead?.(cid);
+    api.post(`/conversations/${cid}/read`).catch(() => {});
+  };
 
   const join = async () => {
+    const nextMems = Array.from(new Set([...(conv?.member_ids || []), me?.user_id].filter(Boolean)));
+    const optimistic = { ...conv, is_member: true, member_ids: nextMems, members: nextMems };
+    setConv(optimistic);
+    upsertConversationInCache(optimistic, me?.user_id);
+    toast.success(`Joined ${conv?.name || "group"}`);
     try {
-      await api.post(`/groups/${cid}/join`);
-      loadConv();
-      onChange?.();
-      toast.success(`Joined ${conv.name || "group"}`);
+      const { data } = await api.post(`/groups/${cid}/join`);
+      if (data && data.id) {
+        setConv((prev) => ({ ...prev, ...data, is_member: true }));
+        upsertConversationInCache({ ...optimistic, ...data, is_member: true }, me?.user_id);
+      }
     } catch (e) {
       toast.error(errMsg(e));
     }
   };
 
   useEffect(() => {
-    setConv(getInitialConv(cid, me));
-    setMsgs(getInitialMsgs(cid));
+    const initialConv = getInitialConv(cid, me);
+    const initialMsgs = getInitialMsgs(cid);
+    setConv(initialConv);
+    setMsgs(initialMsgs);
     requestAnimationFrame(() => bottom.current?.scrollIntoView());
+    markRead();
     loadConv();
     api.get(`/conversations/${cid}/messages`).then((r) => {
       const arr = Array.isArray(r.data) ? r.data : [];
+      const hadCount = initialMsgs.length;
       setMsgs(arr);
       CHAT_CACHE[`msgs_${cid}`] = arr;
       try { localStorage.setItem(`circle_msgs_cache_${cid}`, JSON.stringify(arr)); } catch {}
       setMore(arr.length >= 50);
-      requestAnimationFrame(() => bottom.current?.scrollIntoView());
-      markRead();
+      if (arr.length !== hadCount) {
+        requestAnimationFrame(() => bottom.current?.scrollIntoView());
+      }
     }).catch(() => {});
-  }, [cid]);
+  }, [cid, me?.user_id]); // eslint-disable-line
 
   useEffect(() => subscribe((e) => {
     const d = e.data;
+    if ((e.type === "group:updated" || e.type === "conversation:upsert") && d?.id === cid) {
+      setConv((prev) => {
+        const next = { ...(prev || {}), ...d };
+        CHAT_CACHE[`conv_${cid}`] = next;
+        return next;
+      });
+    }
+    if (e.type === "group:deleted" && e.id === cid) {
+      navigate("/messages");
+    }
     if (e.type === "message:new" && d.conversation_id === cid) {
       setMsgs((x) => {
         const arr = Array.isArray(x) ? x : [];
@@ -272,7 +326,7 @@ export default function ChatView({ cid, onChange }) {
     }
     if (e.type === "read" && d.conversation_id === cid) setConv((c) => c && ({ ...c, reads: { ...(c.reads || {}), [d.user_id]: d.at } }));
     if (e.type === "typing" && d.conversation_id === cid) setTyping((t) => ({ ...t, [d.user_id]: Date.now() }));
-  }), [subscribe, cid]); // eslint-disable-line
+  }), [subscribe, cid, me?.user_id]); // eslint-disable-line
 
   useEffect(() => { const t = setInterval(() => setTyping((x) => ({ ...x })), 2000); return () => clearInterval(t); }, []);
   useEffect(() => {
@@ -295,22 +349,27 @@ export default function ChatView({ cid, onChange }) {
   };
 
   const activeConv = conv || getInitialConv(cid, me);
-  const otherMemberId = (activeConv.member_ids || []).find((x) => x !== me?.user_id) || me?.user_id;
+  const memList = Array.isArray(activeConv.member_ids) ? activeConv.member_ids : (Array.isArray(activeConv.members) ? activeConv.members : []);
+  const otherMemberId = memList.find((x) => x && x !== me?.user_id) || me?.user_id;
+  const isCircleAssistantConv = activeConv.type === "dm" && (otherMemberId === "user_circle_assistant" || activeConv.id?.startsWith("conv_circle_"));
   const other = activeConv.type === "dm" ? (
-    userMap?.[otherMemberId] || (otherMemberId === "user_circle_assistant" || (activeConv.name || "").toLowerCase() === "circle" ? {
+    isCircleAssistantConv ? {
       user_id: "user_circle_assistant",
       name: ws?.assistant_name || "Circle",
       job_title: "Workspace AI Assistant",
       avatar: ws?.assistant_avatar || "https://api.dicebear.com/7.x/bottts/svg?seed=CircleWorkspace&backgroundColor=FF5364"
-    } : null)
+    } : (userMap?.[otherMemberId] || null)
   ) : null;
 
 
-  const title = other?.name || activeConv.name || "Circle";
+  const title = activeConv.type === "dm"
+    ? (other?.name || (activeConv.name && activeConv.name !== "Direct Message" ? activeConv.name : "Direct Message"))
+    : (activeConv.name || "Group Chat");
   const typers = Object.entries(typing).filter(([, t]) => Date.now() - t < 4000).map(([id]) => userMap[id]?.name?.split(" ")[0]).filter(Boolean);
   const readers = (ts) => Object.entries(activeConv.reads || {}).filter(([id, at]) => id !== me?.user_id && at >= ts).length;
   const safeMsgs = Array.isArray(msgs) ? msgs : [];
-  const lastMine = [...safeMsgs].reverse().find((m) => m.sender_id === me?.user_id)?.id;
+  const isMyMessage = (m) => Boolean(me?.user_id && (m.sender_id === me.user_id || m.user_id === me.user_id));
+  const lastMine = [...safeMsgs].reverse().find((m) => isMyMessage(m))?.id;
   const openPanel = () => (window.innerWidth >= 1280 ? setPanel(!panel) : setMobilePanel(true));
 
   const handleSent = (m, replaceId) => {
@@ -359,7 +418,8 @@ export default function ChatView({ cid, onChange }) {
           {safeMsgs.map((m, i) => {
             const prev = safeMsgs[i - 1];
             const grouped = prev && prev.sender_id === m.sender_id && prev.type !== "call" && new Date(m.created_at) - new Date(prev.created_at) < 300000;
-            return <MessageItem key={m.id || i} m={m} mine={m.sender_id === me?.user_id} grouped={grouped} conv={activeConv} onReply={setReply} onCreateTask={setTaskFrom} readBy={m.id === lastMine ? readers(m.created_at) : undefined} />;
+            const mine = isMyMessage(m);
+            return <MessageItem key={m.id || i} m={m} mine={mine} grouped={grouped} conv={activeConv} onReply={setReply} onCreateTask={setTaskFrom} readBy={m.id === lastMine ? readers(m.created_at) : undefined} />;
           })}
           {!safeMsgs.length && <p className="py-20 text-center text-sm text-sub">Say hello to {title}.</p>}
           <div ref={bottom} />

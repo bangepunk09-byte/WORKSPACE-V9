@@ -6,6 +6,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import fs from 'fs';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import cors from 'cors';
 import { INITIAL_TASKS } from './src/data/initialTasks.js';
 import { INITIAL_DRIVE_SHORTCUTS } from './src/data/initialDriveShortcuts.js';
 
@@ -15,6 +18,14 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
   const wss = new WebSocketServer({ noServer: true });
+  const hmrWss = new WebSocketServer({
+    noServer: true,
+    handleProtocols: (protocols) => {
+      if (protocols.has('vite-hmr')) return 'vite-hmr';
+      const first = protocols.values().next().value;
+      return first || false;
+    }
+  });
 
   server.on('upgrade', (request, socket, head) => {
     const { pathname } = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
@@ -23,8 +34,13 @@ async function startServer() {
         wss.emit('connection', ws, request);
       });
     } else {
-      // Do not destroy or close abruptly, silently drop or ignore HMR probing in sandbox
-      socket.destroy();
+      // Accept Vite HMR or auxiliary WebSocket upgrades cleanly so @vite/client never throws "WebSocket closed without opened"
+      hmrWss.handleUpgrade(request, socket, head, (ws) => {
+        ws.on('error', () => {});
+        try {
+          ws.send(JSON.stringify({ type: 'connected' }));
+        } catch {}
+      });
     }
   });
 
@@ -70,7 +86,24 @@ async function startServer() {
     limits: { fileSize: 15 * 1024 * 1024 }
   });
 
-  app.use(express.json());
+  app.set('trust proxy', 1);
+
+  // Security Middleware
+  app.use(helmet({
+    contentSecurityPolicy: false, // Allow Vite client scripts and external avatar images in dev/preview
+    crossOriginEmbedderPolicy: false
+  }));
+  app.use(cors());
+  const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 1000, // Limit each IP to 1000 requests per windowMs
+    standardHeaders: true,
+    legacyHeaders: false,
+    validate: { xForwardedForHeader: false },
+  });
+  app.use('/api/', limiter);
+
+  app.use(express.json({ limit: '10mb' }));
 
   const initialServerTasks: any[] = [];
 
@@ -154,12 +187,52 @@ async function startServer() {
     }
   }
 
-  function saveDbToFile() {
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  let isWritingDb = false;
+  let pendingWrite = false;
+
+  function flushDbToFileSync() {
     try {
       fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
     } catch (e) {
       console.warn('Failed to save DB file to disk:', e);
     }
+  }
+
+  async function flushDbToFileAsync() {
+    if (isWritingDb) {
+      pendingWrite = true;
+      return;
+    }
+    isWritingDb = true;
+    try {
+      const payload = JSON.stringify(db, null, 2);
+      await fs.promises.writeFile(DB_FILE, payload, 'utf-8');
+    } catch (e) {
+      console.warn('Failed to save DB file to disk:', e);
+    } finally {
+      isWritingDb = false;
+      if (pendingWrite) {
+        pendingWrite = false;
+        saveDbToFile();
+      }
+    }
+  }
+
+  function saveDbToFile(immediate = false) {
+    if (immediate) {
+      if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+      }
+      flushDbToFileSync();
+      return;
+    }
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      flushDbToFileAsync();
+    }, 120);
   }
 
   // Load persistent DB state on startup
@@ -722,6 +795,110 @@ async function startServer() {
     db.drive_shortcuts = [...INITIAL_DRIVE_SHORTCUTS];
   }
 
+  // Sanitize DM conversations so accounts never share or merge private DMs
+  function sanitizeConversationsAndMessages() {
+    if (!Array.isArray(db.conversations)) db.conversations = [];
+    if (!Array.isArray(db.messages)) db.messages = [];
+
+    const newConvs: any[] = [];
+    const seenCircleIds = new Set<string>();
+
+    for (const c of db.conversations) {
+      if (!c || !c.id) continue;
+
+      // 1. Strict isolation for Circle Assistant DMs: conv_circle_<uid>
+      if (String(c.id).startsWith("conv_circle_")) {
+        const ownerUid = String(c.id).replace("conv_circle_", "");
+        if (!ownerUid || seenCircleIds.has(c.id)) continue;
+        seenCircleIds.add(c.id);
+        c.type = "dm";
+        c.name = db.workspace?.assistant_name || "Circle";
+        c.member_ids = [CIRCLE_BOT_ID, ownerUid];
+        c.members = [CIRCLE_BOT_ID, ownerUid];
+        // Remove any messages in this Circle DM that were accidentally sent by other human users
+        db.messages = db.messages.filter((m: any) => {
+          if (m.conversation_id !== c.id) return true;
+          const sId = m.sender_id || m.user_id;
+          return sId === CIRCLE_BOT_ID || sId === ownerUid || Boolean(m.access_request);
+        });
+        newConvs.push(c);
+        continue;
+      }
+
+      // 2. Group conversations keep all human members
+      if (c.type === "group" || c.group_type || String(c.id).startsWith("group_")) {
+        const rawMems = Array.isArray(c.member_ids) ? c.member_ids : (Array.isArray(c.members) ? c.members : []);
+        const cleanMems = Array.from(new Set(rawMems.filter((id: string) => Boolean(id) && id !== CIRCLE_BOT_ID)));
+        c.member_ids = cleanMems;
+        c.members = cleanMems;
+        newConvs.push(c);
+        continue;
+      }
+
+      // 3. Human-to-Human DMs: must strictly have 2 distinct participants
+      if (c.type === "dm") {
+        const rawMems = Array.isArray(c.member_ids) ? c.member_ids : (Array.isArray(c.members) ? c.members : []);
+        const uniqueMems = Array.from(new Set(rawMems.filter((id: string) => Boolean(id) && id !== CIRCLE_BOT_ID))) as string[];
+
+        if (uniqueMems.length === 2) {
+          c.member_ids = uniqueMems;
+          c.members = uniqueMems;
+          c.name = "";
+          // Filter out any stray messages from a 3rd user who is not one of the 2 DM participants
+          db.messages = db.messages.filter((m: any) => {
+            if (m.conversation_id !== c.id) return true;
+            const sId = m.sender_id || m.user_id;
+            return uniqueMems.includes(sId);
+          });
+          newConvs.push(c);
+        } else if (uniqueMems.length > 2) {
+          // This DM was corrupted by multiple users being pushed into member_ids.
+          // Split messages by actual 2-person conversation pairs or keep the original 2 members if identifiable.
+          const firstTwo = uniqueMems.slice(0, 2);
+          c.member_ids = firstTwo;
+          c.members = firstTwo;
+          c.name = "";
+          db.messages = db.messages.filter((m: any) => {
+            if (m.conversation_id !== c.id) return true;
+            const sId = m.sender_id || m.user_id;
+            return firstTwo.includes(sId);
+          });
+          newConvs.push(c);
+        }
+        continue;
+      }
+
+      newConvs.push(c);
+    }
+
+    // Deduplicate any 2-person human DMs that have the exact same pair of users
+    const dmPairMap = new Map<string, any>();
+    const deduplicatedConvs: any[] = [];
+    for (const c of newConvs) {
+      if (c.type === "dm" && !String(c.id).startsWith("conv_circle_")) {
+        const mems = (c.member_ids || []).slice().sort();
+        if (mems.length === 2) {
+          const pairKey = `${mems[0]}__${mems[1]}`;
+          if (dmPairMap.has(pairKey)) {
+            const primary = dmPairMap.get(pairKey);
+            // Reassign any messages from the duplicate DM to the primary DM
+            db.messages.forEach((m: any) => {
+              if (m.conversation_id === c.id) {
+                m.conversation_id = primary.id;
+              }
+            });
+            continue;
+          }
+          dmPairMap.set(pairKey, c);
+        }
+      }
+      deduplicatedConvs.push(c);
+    }
+
+    db.conversations = deduplicatedConvs;
+  }
+
+  sanitizeConversationsAndMessages();
   saveDbToFile();
 
   // Auto-save DB on any data-modifying HTTP request
@@ -734,7 +911,28 @@ async function startServer() {
     next();
   });
 
-  let currentSessionUser: any = (db.session_user_id && db.users.find((u: any) => u.user_id === db.session_user_id)) || db.users[0];
+  let currentSessionUser: any = (db.session_user_id && db.users.find((u: any) => u.user_id === db.session_user_id)) || null;
+
+  function getReqUser(req: any): any {
+    const headerUid = req.headers?.["x-user-id"] as string | undefined;
+    if (headerUid) {
+      const found = (db.users || []).find((u: any) => u.user_id === headerUid);
+      if (found) return found;
+    }
+    return currentSessionUser;
+  }
+
+  // Per-request session binding middleware so multiple logged-in accounts/tabs never overwrite each other
+  app.use((req, _res, next) => {
+    const headerUid = req.headers?.["x-user-id"] as string | undefined;
+    if (headerUid) {
+      const found = (db.users || []).find((u: any) => u.user_id === headerUid);
+      if (found) {
+        currentSessionUser = found;
+      }
+    }
+    next();
+  });
 
   // API Routes
   app.post("/api/admin/reset-data", (req, res) => {
@@ -754,12 +952,11 @@ async function startServer() {
   });
 
   app.get("/api/auth/me", (req, res) => {
-    if (!currentSessionUser) {
-      currentSessionUser = db.users[0];
+    const reqUser = getReqUser(req);
+    if (!reqUser) {
+      return res.status(401).json({ error: "Not authenticated" });
     }
-    const latestUser = db.users.find((u: any) => u.user_id === currentSessionUser?.user_id) || currentSessionUser || db.users[0];
-    currentSessionUser = latestUser;
-    db.session_user_id = latestUser.user_id;
+    const latestUser = db.users.find((u: any) => u.user_id === reqUser.user_id) || reqUser;
     res.json({
       user: latestUser,
       workspace: db.workspace,
@@ -949,54 +1146,161 @@ async function startServer() {
   });
 
   app.post("/api/auth/google", (req, res) => {
-    const { email, name, picture } = req.body || {};
-    if (!email) return res.status(400).json({ detail: "Email is required" });
+    const { email, name, picture, department, job_title, note } = req.body || {};
+    if (!email) return res.status(400).json({ detail: "Email wajib diisi" });
 
-    let user = db.users.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+    const cleanEmail = String(email).toLowerCase().trim();
+    let user = db.users.find((u: any) => u.email?.toLowerCase() === cleanEmail);
 
     // Super admin default email whitelist
-    const isSuperAdminEmail = email.toLowerCase() === "be.creativestudio21@gmail.com" || email.toLowerCase() === "admin@asliri.local" || email.toLowerCase() === "saeful@asliri.id";
+    const isSuperAdminEmail =
+      cleanEmail === "be.creativestudio21@gmail.com" ||
+      cleanEmail === "admin@asliri.local" ||
+      cleanEmail === "saeful@asliri.id";
 
     if (!user) {
       if (isSuperAdminEmail) {
         user = {
           user_id: `user_superadmin_google`,
-          email,
+          email: cleanEmail,
           name: name || "Super Admin",
           role: "super_admin",
           job_title: "Workspace Administrator",
-          department: "Engineering",
+          department: "Management",
+          org_unit_id: "unit_mgmt",
           online: true,
           is_demo: false,
           status: "active",
-          avatar: picture || ""
+          avatar: picture || "https://api.dicebear.com/7.x/pixel-art/svg?seed=SuperAdmin",
+          picture: picture || "https://api.dicebear.com/7.x/pixel-art/svg?seed=SuperAdmin"
         };
         db.users.push(user);
+        saveDbToFile();
       } else {
-        // Unknown email! Requires access request flow
-        return res.status(403).json({
-          status: "need_access_request",
-          detail: "Email belum memiliki akses ke workspace ini. Silakan kirim permohonan akses.",
-          email,
-          name: name || "",
-          picture: picture || ""
+        // Automatically register new Google user as pending & send Approval Card to Super Admin
+        const displayName = (name || cleanEmail.split("@")[0] || "Google User").trim();
+        const dept = department || "General";
+        const title = job_title || "Staff Member";
+        const avatarUrl = picture || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${encodeURIComponent(displayName)}`;
+        const newUserId = `user_google_${Date.now()}`;
+        const reqId = `req_${Date.now()}`;
+
+        const newUserObj = {
+          user_id: newUserId,
+          email: cleanEmail,
+          name: displayName,
+          role: "employee",
+          job_title: title,
+          department: dept,
+          status: "pending",
+          online: false,
+          is_demo: false,
+          avatar: avatarUrl,
+          picture: avatarUrl
+        };
+        db.users.push(newUserObj);
+
+        const accessReq = {
+          id: reqId,
+          name: displayName,
+          email: cleanEmail,
+          department: dept,
+          job_title: title,
+          note: note || "Pendaftaran akun baru via Google Sign-Up",
+          status: "pending",
+          created_at: new Date().toISOString()
+        };
+        db.access_requests.unshift(accessReq);
+
+        const approvers = db.users.filter((u: any) =>
+          u.role === "super_admin" ||
+          u.role === "workspace_admin" ||
+          (u.role === "department_manager" && (!dept || u.department === dept || u.department === "General"))
+        );
+        const targetApprovers = approvers.length > 0 ? approvers : [db.users[0]];
+
+        targetApprovers.forEach((admin: any) => {
+          if (!admin?.user_id) return;
+          const convId = `conv_circle_${admin.user_id}`;
+          let conv = db.conversations.find((c: any) => c.id === convId);
+          if (!conv) {
+            conv = {
+              id: convId,
+              type: "dm",
+              name: db.workspace?.assistant_name || "Circle",
+              admin_ids: [CIRCLE_BOT_ID],
+              members: [CIRCLE_BOT_ID, admin.user_id],
+              member_ids: [CIRCLE_BOT_ID, admin.user_id],
+              unread: 1,
+              last_message_preview: `Pendaftaran akun Google dari ${displayName}`,
+              last_message_at: new Date().toISOString()
+            };
+            db.conversations.unshift(conv);
+          } else {
+            conv.member_ids = [CIRCLE_BOT_ID, admin.user_id];
+            conv.members = [CIRCLE_BOT_ID, admin.user_id];
+            conv.unread = (conv.unread || 0) + 1;
+            conv.last_message_preview = `Pendaftaran akun Google dari ${displayName}`;
+            conv.last_message_at = new Date().toISOString();
+          }
+
+          const msg = {
+            id: `msg_req_${reqId}_${admin.user_id}`,
+            conversation_id: conv.id,
+            sender_id: CIRCLE_BOT_ID,
+            user_id: CIRCLE_BOT_ID,
+            text: `Halo ${admin.name.split(" ")[0]}! Ada pendaftaran akun Google baru (${cleanEmail}) untuk divisi ${dept}. Silakan tinjau card approval di bawah ini:`,
+            type: "access_request_card",
+            access_request: accessReq,
+            created_at: new Date().toISOString()
+          };
+          db.messages.push(msg);
+          broadcast({ type: "message:new", data: { ...msg, member_ids: [CIRCLE_BOT_ID, admin.user_id] } });
+
+          createNotification({
+            user_id: admin.user_id,
+            title: "Pendaftaran Akun Google Baru",
+            body: `${displayName} (${cleanEmail}) mendaftar via Google dan menunggu persetujuan Super Admin`,
+            type: "access_request",
+            category: "system",
+            access_request: accessReq
+          });
+        });
+
+        saveDbToFile();
+        broadcast({ type: "access_requests:changed" });
+        broadcast({ type: "conversations:changed" });
+
+        return res.json({
+          status: "registered_pending",
+          detail: "Pendaftaran akun Google berhasil diajukan! Menunggu persetujuan Super Admin.",
+          user: newUserObj,
+          access_request: accessReq
         });
       }
     } else if (user.status === "pending") {
       return res.status(403).json({
         status: "pending",
-        detail: "Permintaan akses untuk akun Anda sedang ditinjau oleh Super Admin / Manager.",
-        email,
+        detail: "Permintaan akses untuk akun Google Anda sedang ditinjau oleh Super Admin / Manager.",
+        email: cleanEmail,
         name: user.name
       });
-    } else if (user.status === "inactive") {
+    } else if (user.status === "inactive" || user.status === "rejected") {
       return res.status(403).json({
         status: "inactive",
-        detail: "Akun Anda dinonaktifkan. Silakan hubungi Workspace Administrator."
+        detail: "Akun Anda dinonaktifkan atau ditolak. Silakan hubungi Workspace Administrator."
       });
     }
 
+    if (picture && !user.avatar) {
+      user.avatar = picture;
+      user.picture = picture;
+    }
+
     currentSessionUser = user;
+    db.session_user_id = user.user_id;
+    saveDbToFile();
+
     res.json({
       user,
       workspace: db.workspace,
@@ -1477,8 +1781,43 @@ async function startServer() {
       if (!uid) return false;
       if (Array.isArray(t.assignee_ids) && t.assignee_ids.includes(uid)) return true;
       if (t.assignee_id === uid) return true;
+      if (Array.isArray(t.collaborator_ids) && t.collaborator_ids.includes(uid)) return true;
+      if (Array.isArray(t.checkpoints) && t.checkpoints.some((c: any) => c && c.assignee_id === uid)) return true;
       return false;
     };
+
+    // Ensure any active reached checkpoint that hasn't notified its assigned PIC yet sends its notification
+    let checkpointSynced = false;
+    (db.tasks || []).forEach((taskItem: any) => {
+      if (!taskItem || taskItem.archived || !Array.isArray(taskItem.checkpoints) || taskItem.checkpoints.length === 0) return;
+      const activeIdx = taskItem.checkpoints.findIndex((c: any) => !c.done);
+      taskItem.checkpoints.forEach((c: any, idx: number) => {
+        const isReached = !c.done && idx === activeIdx;
+        if (!isReached) {
+          if (c.notified_ready_for) {
+            c.notified_ready_for = null;
+            checkpointSynced = true;
+          }
+        } else if (c.assignee_id && c.notified_ready_for !== c.assignee_id) {
+          c.notified_ready_for = c.assignee_id;
+          checkpointSynced = true;
+          const readyMsg = `Task "${taskItem.title}" sudah siap dikerjakan, Semangat ya..`;
+          createNotification({
+            user_id: c.assignee_id,
+            title: `Checkpoint Siap Dikerjakan: ${c.title || taskItem.title}`,
+            body: readyMsg,
+            type: "checkpoint_ready",
+            category: "tasks",
+            actor_id: taskItem.created_by || CIRCLE_BOT_ID,
+            link: `/tasks?task=${taskItem.id}`,
+            task_id: taskItem.id
+          });
+        }
+      });
+    });
+    if (checkpointSynced) {
+      saveDbToFile();
+    }
 
     if (isArchiveView) {
       list = list.filter((t: any) => t.archived === true);
@@ -1515,7 +1854,7 @@ async function startServer() {
       );
     }
 
-    // Access control: Non-super_admin users only see tasks from accessible boards
+    // Access control: Non-super_admin users only see tasks from accessible boards or tasks assigned to them
     const user = currentSessionUser;
     if (user && user.role !== "super_admin" && user.role !== "workspace_admin") {
       const accessibleBoardIds = new Set(
@@ -1528,7 +1867,7 @@ async function startServer() {
           })
           .map((b: any) => b.id)
       );
-      list = list.filter((t: any) => !t.board_id || accessibleBoardIds.has(t.board_id));
+      list = list.filter((t: any) => !t.board_id || accessibleBoardIds.has(t.board_id) || isTaskAssignedToUser(t, user.user_id));
     }
 
     res.json(list);
@@ -1623,6 +1962,29 @@ async function startServer() {
         });
       }
     });
+
+    // If the first active checkpoint has an assigned PIC, notify them that the task is ready to work on
+    if (Array.isArray(t.checkpoints) && t.checkpoints.length > 0) {
+      const activeIdx = t.checkpoints.findIndex((c: any) => !c.done);
+      if (activeIdx !== -1) {
+        const activeCp = t.checkpoints[activeIdx];
+        if (activeCp && activeCp.assignee_id) {
+          activeCp.notified_ready_for = activeCp.assignee_id;
+          const readyMsg = `Task "${t.title}" sudah siap dikerjakan, Semangat ya..`;
+          createNotification({
+            user_id: activeCp.assignee_id,
+            title: `Checkpoint Siap Dikerjakan: ${activeCp.title || t.title}`,
+            body: readyMsg,
+            type: "checkpoint_ready",
+            category: "tasks",
+            actor_id: currentSessionUser?.user_id || CIRCLE_BOT_ID,
+            link: `/tasks?task=${t.id}`,
+            task_id: t.id
+          });
+          saveDbToFile();
+        }
+      }
+    }
 
     res.json(t);
   });
@@ -2046,6 +2408,101 @@ async function startServer() {
       // Recalculate progress percentage
       const doneTotal = newCheckpoints.filter((c: any) => c.done).length;
       req.body.progress = newCheckpoints.length > 0 ? Math.round((doneTotal / newCheckpoints.length) * 100) : (t.status === "done" ? 100 : 0);
+
+      // Detect if a checkpoint has reached its assigned PIC's turn (ready to work on)
+      const newActiveIdx = newCheckpoints.findIndex((c: any) => !c.done);
+      const oldActiveIdx = oldCheckpoints.findIndex((c: any) => !c.done);
+      const notifiedInThisPatch = new Set<string>();
+
+      newCheckpoints.forEach((newCp: any, idx: number) => {
+        const oldCp = oldCheckpoints.find((c: any) => c.id === newCp.id);
+        const isCurrentTurn = !newCp.done && idx === newActiveIdx;
+        const prevCp = idx > 0 ? newCheckpoints[idx - 1] : null;
+        const oldPrevCp = prevCp ? oldCheckpoints.find((c: any) => c.id === prevCp.id) : null;
+        const immediatePrevJustCompleted = !newCp.done && Boolean(prevCp?.done) && !oldPrevCp?.done;
+
+        const isReached = isCurrentTurn || immediatePrevJustCompleted;
+
+        if (!isReached) {
+          newCp.notified_ready_for = null;
+          return;
+        }
+
+        if (!newCp.assignee_id) {
+          newCp.notified_ready_for = null;
+          return;
+        }
+
+        const turnJustReached =
+          immediatePrevJustCompleted ||
+          (isCurrentTurn && (oldActiveIdx !== newActiveIdx || oldCheckpoints[oldActiveIdx]?.id !== newCp.id)) ||
+          (oldCp?.done && !newCp.done);
+        const picJustAssignedOnReached = (newCp.assignee_id || null) !== (oldCp?.assignee_id || null);
+        const notYetNotified = newCp.notified_ready_for !== newCp.assignee_id;
+
+        if ((turnJustReached || picJustAssignedOnReached || notYetNotified) && !notifiedInThisPatch.has(`${newCp.id}_${newCp.assignee_id}`)) {
+          notifiedInThisPatch.add(`${newCp.id}_${newCp.assignee_id}`);
+          newCp.notified_ready_for = newCp.assignee_id;
+
+          const targetUid = newCp.assignee_id;
+          const taskTitle = req.body.title || t.title;
+          const readyMsg = `Task "${taskTitle}" sudah siap dikerjakan, Semangat ya..`;
+
+          // Ensure checkpoint PIC is in collaborator_ids so they can always access the task
+          t.collaborator_ids = Array.isArray(t.collaborator_ids) ? t.collaborator_ids : [];
+          if (!t.collaborator_ids.includes(targetUid)) {
+            t.collaborator_ids.push(targetUid);
+          }
+
+          // Also log to Circle Assistant DM (with silent_popup so the main task notification popup takes priority)
+          let conv = db.conversations.find((c: any) => c.id === `conv_circle_${targetUid}`);
+          if (!conv) {
+            conv = {
+              id: `conv_circle_${targetUid}`,
+              type: "dm",
+              name: db.workspace?.assistant_name || "Circle",
+              admin_ids: [],
+              members: [CIRCLE_BOT_ID, targetUid],
+              member_ids: [CIRCLE_BOT_ID, targetUid],
+              unread: 1,
+              last_message_preview: readyMsg,
+              last_message_at: new Date().toISOString()
+            };
+            db.conversations.unshift(conv);
+          } else {
+            conv.unread = (conv.unread || 0) + 1;
+            conv.last_message_preview = readyMsg;
+            conv.last_message_at = new Date().toISOString();
+          }
+
+          const botMsg = {
+            id: `msg_cp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            conversation_id: conv.id,
+            sender_id: CIRCLE_BOT_ID,
+            user_id: CIRCLE_BOT_ID,
+            member_ids: [CIRCLE_BOT_ID, targetUid],
+            text: `${readyMsg}\n(Checkpoint: ${newCp.title || "Tahap Tugas"})`,
+            task_id: t.id,
+            silent_popup: true,
+            created_at: new Date().toISOString()
+          };
+          db.messages.push(botMsg);
+          broadcast({ type: "message:new", data: botMsg });
+          broadcast({ type: "conversations:changed" });
+
+          // Main notification to the assigned PIC
+          createNotification({
+            user_id: targetUid,
+            title: `Checkpoint Siap Dikerjakan: ${newCp.title || taskTitle}`,
+            body: readyMsg,
+            type: "checkpoint_ready",
+            category: "tasks",
+            actor_id: actorId,
+            link: `/tasks?task=${t.id}`,
+            task_id: t.id
+          });
+        }
+      });
     }
     
     // If status changed to done, mark completed_at and progress 100
@@ -2120,7 +2577,7 @@ async function startServer() {
           type: "task_status",
           category: "tasks",
           actor_id: currentSessionUser?.user_id,
-          link: `/tasks?id=${t.id}`,
+          link: `/tasks?task=${t.id}`,
           task_id: t.id
         });
       });
@@ -2130,6 +2587,31 @@ async function startServer() {
     broadcast({ type: "tasks:changed", task: t });
     const board = db.boards?.find((b: any) => b.id === t.board_id) || db.boards?.[0] || null;
     res.json({ ...t, board });
+  });
+
+  app.post("/api/tasks/:id/checkpoints/:cpId/notify", (req, res) => {
+    const t = db.tasks.find((x: any) => x.id === req.params.id);
+    if (!t) return res.status(404).json({ detail: "Task not found" });
+    const cp = (t.checkpoints || []).find((c: any) => c.id === req.params.cpId);
+    if (!cp || !cp.assignee_id) return res.status(400).json({ detail: "Checkpoint belum memiliki PIC" });
+
+    const actorId = currentSessionUser?.user_id || "user_admin1";
+    const readyMsg = `Task "${t.title}" sudah siap dikerjakan, Semangat ya..`;
+    cp.notified_ready_for = cp.assignee_id;
+
+    const notif = createNotification({
+      user_id: cp.assignee_id,
+      title: `Checkpoint Siap Dikerjakan: ${cp.title || t.title}`,
+      body: readyMsg,
+      type: "checkpoint_ready",
+      category: "tasks",
+      actor_id: actorId,
+      link: `/tasks?task=${t.id}`,
+      task_id: t.id
+    });
+
+    saveDbToFile();
+    res.json({ success: true, notification: notif });
   });
 
   app.delete("/api/tasks/:id", (req, res) => {
@@ -2182,7 +2664,7 @@ async function startServer() {
         type: "task_comment",
         category: "tasks",
         actor_id: actorId,
-        link: `/tasks?id=${t.id}`,
+        link: `/tasks?task=${t.id}`,
         task_id: t.id
       });
     });
@@ -2355,13 +2837,17 @@ async function startServer() {
 
   // Groups & Channels Endpoints
   app.get("/api/groups/browse", (req, res) => {
-    const userId = currentSessionUser?.user_id;
-    const list = db.groups.map((g: any) => {
-      const mems = (g.member_ids || []).filter((id: string) => id !== CIRCLE_BOT_ID);
+    const reqUser = getReqUser(req);
+    const userId = reqUser?.user_id || currentSessionUser?.user_id;
+    const list = (db.groups || []).map((g: any) => {
+      const conv = (db.conversations || []).find((c: any) => c.id === g.id);
+      const rawMems = conv?.member_ids || g.member_ids || [];
+      const mems = Array.from(new Set(rawMems.filter((id: string) => Boolean(id) && id !== CIRCLE_BOT_ID)));
       return {
         ...g,
+        ...(conv ? { name: conv.name || g.name, description: conv.description ?? g.description, image: conv.image ?? g.image, archived: conv.archived ?? g.archived, location: conv.location ?? g.location } : {}),
         member_ids: mems,
-        is_member: mems.includes(userId),
+        is_member: Boolean(userId && mems.includes(userId)),
         member_count: mems.length
       };
     });
@@ -2369,8 +2855,9 @@ async function startServer() {
   });
 
   app.post("/api/groups", (req, res) => {
-    const isVerified = currentSessionUser?.role === "super_admin";
-    const creatorId = currentSessionUser?.user_id || "user_admin1";
+    const reqUser = getReqUser(req);
+    const isVerified = reqUser?.role === "super_admin";
+    const creatorId = reqUser?.user_id || "user_admin1";
     const rawMembers = Array.isArray(req.body.member_ids) ? req.body.member_ids : [];
     const cleanMembers = Array.from(new Set([creatorId, ...rawMembers])).filter((id: any) => Boolean(id) && id !== CIRCLE_BOT_ID);
     const g = { 
@@ -2378,14 +2865,21 @@ async function startServer() {
       is_member: true, 
       is_verified: isVerified,
       created_by: creatorId,
+      admin_ids: [creatorId],
       type: "group",
       ...req.body,
       member_ids: cleanMembers,
-      member_count: cleanMembers.length
+      members: cleanMembers,
+      member_count: cleanMembers.length,
+      unread: 0,
+      last_message_preview: "",
+      last_message_at: new Date().toISOString()
     };
     db.groups.push(g);
     db.conversations.push(g);
     saveDbToFile();
+    broadcast({ type: "groups:changed", data: g });
+    broadcast({ type: "conversation:upsert", data: g });
     res.json(g);
   });
 
@@ -2792,9 +3286,62 @@ async function startServer() {
     }
   });
 
+  function computeTrendingTags() {
+    const tagCounts: Record<string, number> = {};
+    (db.posts || []).forEach((p: any) => {
+      const matches = p.text?.match(/#([\p{L}\p{N}_]{1,40})/gu);
+      if (matches) {
+        matches.forEach((m: string) => {
+          const t = m.slice(1).toLowerCase();
+          tagCounts[t] = (tagCounts[t] || 0) + 1;
+        });
+      }
+    });
+    return Object.entries(tagCounts)
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  function hydratePostForUser(p: any, uid: string, includePreview = true): any {
+    if (!p) return p;
+    const likes = Array.isArray(p.likes) ? p.likes : [];
+    const pollId = p.poll_id || p.poll?.id || null;
+    let pollObj = null;
+    if (pollId) {
+      const foundPoll = (db.polls || []).find((x: any) => x.id === pollId) || p.poll;
+      if (foundPoll) {
+        pollObj = formatPollForUser(foundPoll, uid);
+      }
+    }
+    const allReplies = includePreview
+      ? (db.posts || []).filter((r: any) => r.parent_id === p.id)
+      : [];
+    const repliesPreview = includePreview
+      ? allReplies.slice(-3).map((r: any) => hydratePostForUser(r, uid, false))
+      : undefined;
+
+    return {
+      ...p,
+      likes,
+      like_count: likes.length,
+      liked: Boolean(uid && likes.includes(uid)),
+      reactions: p.reactions || {},
+      poll_id: pollId,
+      poll: pollObj,
+      ...(includePreview
+        ? {
+            reply_count: allReplies.length,
+            replies_preview: repliesPreview
+          }
+        : {})
+    };
+  }
+
   // Post / Feed Endpoints
   app.get("/api/posts", (req, res) => {
-    let list = [...db.posts].filter((p: any) => !p.parent_id);
+    const reqUser = getReqUser(req);
+    const uid = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
+    let list = [...(db.posts || [])].filter((p: any) => !p.parent_id);
     const { tag, before } = req.query;
     if (tag) {
       list = list.filter((p: any) => p.text?.toLowerCase().includes(`#${String(tag).toLowerCase()}`));
@@ -2803,12 +3350,13 @@ async function startServer() {
       list = list.filter((p: any) => new Date(p.created_at) < new Date(String(before)));
     }
     list.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    res.json(list.slice(0, 30));
+    res.json(list.slice(0, 30).map((p: any) => hydratePostForUser(p, uid, true)));
   });
 
   app.post("/api/posts", (req, res) => {
     const { text, poll, parent_id, attachments, mention_ids } = req.body;
-    const uid = currentSessionUser?.user_id || "user_admin1";
+    const reqUser = getReqUser(req);
+    const uid = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
     let createdPollObj: any = null;
     if (poll && poll.question) {
       db.polls = db.polls || [];
@@ -2830,13 +3378,7 @@ async function startServer() {
         created_at: new Date().toISOString()
       };
       db.polls.push(newPoll);
-      createdPollObj = {
-        ...newPoll,
-        counts: Object.fromEntries(newPoll.options.map((o: any) => [o.id, 0])),
-        voters: Object.fromEntries(newPoll.options.map((o: any) => [o.id, []])),
-        my_vote: [],
-        total_votes: 0
-      };
+      createdPollObj = formatPollForUser(newPoll, uid);
     }
     const newPost = {
       id: `pst_${Date.now()}`,
@@ -2855,12 +3397,14 @@ async function startServer() {
       replies_preview: [],
       created_at: new Date().toISOString()
     };
+    let updatedParent: any = null;
     if (parent_id) {
       const parent = db.posts.find((p: any) => p.id === parent_id);
       if (parent) {
         parent.reply_count = (parent.reply_count || 0) + 1;
         parent.replies_preview = parent.replies_preview || [];
         parent.replies_preview.push(newPost);
+        updatedParent = parent;
       }
     }
     db.posts.unshift(newPost);
@@ -2868,74 +3412,88 @@ async function startServer() {
     // Notify mentioned users
     if (Array.isArray(mention_ids)) {
       mention_ids.forEach((userId: string) => {
-        if (userId === currentSessionUser?.user_id) return;
+        if (userId === uid) return;
         createNotification({
           user_id: userId,
           title: "Anda dimention dalam postingan",
-          body: `${currentSessionUser?.name || "Seseorang"} menyebut Anda dalam sebuah postingan: "${text?.slice(0, 50)}${text?.length > 50 ? '...' : ''}"`,
+          body: `${reqUser?.name || "Seseorang"} menyebut Anda dalam sebuah postingan: "${text?.slice(0, 50)}${text?.length > 50 ? '...' : ''}"`,
           type: "post_mention",
           category: "social",
-          actor_id: currentSessionUser?.user_id,
+          actor_id: uid,
           link: `/beranda`
         });
       });
     }
 
     // Notify parent author if this is a reply
-    if (parent_id) {
-      const parent = db.posts.find((p: any) => p.id === parent_id);
-      if (parent && parent.author_id !== currentSessionUser?.user_id) {
-        createNotification({
-          user_id: parent.author_id,
-          title: "Balasan baru pada postingan Anda",
-          body: `${currentSessionUser?.name || "Seseorang"} membalas postingan Anda.`,
-          type: "post_reply",
-          category: "social",
-          actor_id: currentSessionUser?.user_id,
-          link: `/beranda`
-        });
-      }
+    if (parent_id && updatedParent && updatedParent.author_id !== uid) {
+      createNotification({
+        user_id: updatedParent.author_id,
+        title: "Balasan baru pada postingan Anda",
+        body: `${reqUser?.name || "Seseorang"} membalas postingan Anda.`,
+        type: "post_reply",
+        category: "social",
+        actor_id: uid,
+        link: `/beranda/${parent_id}`
+      });
     }
 
-    broadcast({ type: "posts:changed" });
-    broadcast({ type: "post:new", data: newPost });
-    res.json(newPost);
+    const hydratedNew = hydratePostForUser(newPost, uid, !parent_id);
+    broadcast({
+      type: "post:new",
+      data: hydratedNew,
+      parent: updatedParent ? hydratePostForUser(updatedParent, uid, true) : null,
+      trending: computeTrendingTags()
+    });
+    res.json(hydratedNew);
   });
 
   app.get("/api/posts/trending", (req, res) => {
-    const tagCounts: Record<string, number> = {};
-    db.posts.forEach((p: any) => {
-      const matches = p.text?.match(/#([\p{L}\p{N}_]{1,40})/gu);
-      if (matches) {
-        matches.forEach((m: string) => {
-          const t = m.slice(1).toLowerCase();
-          tagCounts[t] = (tagCounts[t] || 0) + 1;
-        });
-      }
-    });
-    const trending = Object.entries(tagCounts)
-      .map(([tag, count]) => ({ tag, count }))
-      .sort((a, b) => b.count - a.count);
-    res.json(trending);
+    res.json(computeTrendingTags());
   });
 
   app.get("/api/posts/:id", (req, res) => {
+    const reqUser = getReqUser(req);
+    const uid = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
     const p = db.posts.find((x: any) => x.id === req.params.id);
     if (!p) return res.status(404).json({ detail: "Post not found" });
-    const replies = db.posts.filter((x: any) => x.parent_id === p.id);
-    res.json({ ...p, replies });
+    const replies = db.posts
+      .filter((x: any) => x.parent_id === p.id)
+      .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      .map((r: any) => hydratePostForUser(r, uid, false));
+    res.json({ ...hydratePostForUser(p, uid, true), replies });
   });
 
   app.delete("/api/posts/:id", (req, res) => {
+    const reqUser = getReqUser(req);
+    const uid = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
+    const target = db.posts.find((p: any) => p.id === req.params.id);
+    const parentId = target?.parent_id || null;
     db.posts = db.posts.filter((p: any) => p.id !== req.params.id && p.parent_id !== req.params.id);
-    broadcast({ type: "posts:changed" });
+    let updatedParent: any = null;
+    if (parentId) {
+      const parent = db.posts.find((p: any) => p.id === parentId);
+      if (parent) {
+        parent.replies_preview = (parent.replies_preview || []).filter((r: any) => r.id !== req.params.id);
+        parent.reply_count = db.posts.filter((r: any) => r.parent_id === parentId).length;
+        updatedParent = hydratePostForUser(parent, uid, true);
+      }
+    }
+    broadcast({
+      type: "post:deleted",
+      id: req.params.id,
+      parent_id: parentId,
+      parent: updatedParent,
+      trending: computeTrendingTags()
+    });
     res.json({ success: true });
   });
 
   app.post("/api/posts/:id/like", (req, res) => {
     const p = db.posts.find((x: any) => x.id === req.params.id);
     if (!p) return res.status(404).json({ detail: "Post not found" });
-    const uid = currentSessionUser?.user_id || "user_admin1";
+    const reqUser = getReqUser(req);
+    const uid = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
     p.likes = p.likes || [];
     if (p.likes.includes(uid)) {
       p.likes = p.likes.filter((id: string) => id !== uid);
@@ -2945,15 +3503,17 @@ async function startServer() {
       p.liked = true;
     }
     p.like_count = p.likes.length;
-    broadcast({ type: "posts:changed" });
-    res.json(p);
+    const hydrated = hydratePostForUser(p, uid, !p.parent_id);
+    broadcast({ type: "post:updated", data: hydrated });
+    res.json(hydrated);
   });
 
   app.post("/api/posts/:id/react", (req, res) => {
     const p = db.posts.find((x: any) => x.id === req.params.id);
     if (!p) return res.status(404).json({ detail: "Post not found" });
     const { emoji } = req.body;
-    const uid = currentSessionUser?.user_id || "user_admin1";
+    const reqUser = getReqUser(req);
+    const uid = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
     p.reactions = p.reactions || {};
     p.reactions[emoji] = p.reactions[emoji] || [];
     if (p.reactions[emoji].includes(uid)) {
@@ -2962,8 +3522,9 @@ async function startServer() {
     } else {
       p.reactions[emoji].push(uid);
     }
-    broadcast({ type: "posts:changed" });
-    res.json(p);
+    const hydrated = hydratePostForUser(p, uid, !p.parent_id);
+    broadcast({ type: "post:updated", data: hydrated });
+    res.json(hydrated);
   });
 
   const UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
@@ -3062,7 +3623,96 @@ async function startServer() {
     res.json(list);
   });
 
+  app.post("/api/meetings/sync-gcal", (req, res) => {
+    const reqUser = getReqUser(req);
+    const uid = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
+    const incoming = Array.isArray(req.body?.events) ? req.body.events : [];
+    db.meetings = Array.isArray(db.meetings) ? db.meetings : [];
+    db.deleted_gcal_ids = Array.isArray(db.deleted_gcal_ids) ? db.deleted_gcal_ids : [];
+    const deletedSet = new Set(db.deleted_gcal_ids);
+
+    const emailToUserId = new Map<string, string>();
+    (db.users || []).forEach((u: any) => {
+      if (u.email && u.user_id) {
+        emailToUserId.set(String(u.email).toLowerCase(), u.user_id);
+      }
+    });
+
+    let changed = false;
+    incoming.forEach((ev: any) => {
+      const gcalId = String(ev.gcal_event_id || ev.id || "").replace(/^gcal_/, "");
+      if (!gcalId || deletedSet.has(gcalId)) return;
+
+      const mappedAttendees = new Set<string>([uid]);
+      if (Array.isArray(ev.attendee_emails)) {
+        ev.attendee_emails.forEach((em: string) => {
+          const foundUid = emailToUserId.get(String(em || "").toLowerCase());
+          if (foundUid) mappedAttendees.add(foundUid);
+        });
+      }
+      if (Array.isArray(ev.attendee_ids)) {
+        ev.attendee_ids.forEach((id: string) => {
+          if (id) mappedAttendees.add(id);
+        });
+      }
+
+      const existing = db.meetings.find(
+        (m: any) =>
+          m.gcal_event_id === gcalId ||
+          m.id === `gcal_${gcalId}` ||
+          (m.title === ev.title && m.date === ev.date && m.start_time === ev.start_time)
+      );
+
+      if (existing) {
+        if (!existing.gcal_synced || existing.gcal_event_id !== gcalId || existing.title !== ev.title || existing.date !== ev.date || existing.start_time !== ev.start_time || existing.end_time !== ev.end_time) {
+          existing.gcal_synced = true;
+          existing.gcal_event_id = gcalId;
+          existing.title = ev.title || existing.title;
+          existing.description = ev.description ?? existing.description;
+          existing.date = ev.date || existing.date;
+          existing.start_time = ev.start_time || existing.start_time;
+          existing.end_time = ev.end_time || existing.end_time;
+          existing.location = ev.location || existing.location;
+          existing.meet_link = ev.meet_link || existing.meet_link;
+          existing.html_link = ev.html_link || existing.html_link || null;
+          existing.attendee_ids = Array.from(new Set([...(existing.attendee_ids || []), ...Array.from(mappedAttendees)]));
+          changed = true;
+        }
+      } else {
+        db.meetings.push({
+          id: `gcal_${gcalId}`,
+          title: ev.title || "Google Calendar Event",
+          description: ev.description || "",
+          date: ev.date || new Date().toISOString().slice(0, 10),
+          start_time: ev.start_time || "09:00",
+          end_time: ev.end_time || "10:00",
+          location: ev.location || "Google Calendar",
+          meet_link: ev.meet_link || "",
+          html_link: ev.html_link || null,
+          attendee_ids: Array.from(mappedAttendees),
+          is_gcal: true,
+          gcal_synced: true,
+          gcal_event_id: gcalId,
+          created_by: uid,
+          created_at: new Date().toISOString()
+        });
+        changed = true;
+      }
+    });
+
+    const list = [...db.meetings].sort(
+      (a: any, b: any) => new Date(`${a.date}T${a.start_time}`).getTime() - new Date(`${b.date}T${b.start_time}`).getTime()
+    );
+    if (changed) {
+      saveDbToFile();
+      broadcast({ type: "meetings:synced", data: list });
+    }
+    res.json(list);
+  });
+
   app.post("/api/meetings", (req, res) => {
+    const reqUser = getReqUser(req);
+    const uid = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
     const { title, description, date, start_time, end_time, location, meet_link, attendee_ids, gcal_synced, gcal_event_id } = req.body;
     const m = {
       id: `mtg_${Date.now()}`,
@@ -3073,27 +3723,37 @@ async function startServer() {
       end_time: end_time || "11:00",
       location: location || "Google Meet",
       meet_link: meet_link || `https://meet.google.com/asli-${Math.random().toString(36).substring(2, 6)}`,
-      attendee_ids: attendee_ids || [currentSessionUser?.user_id || "user_admin1"],
+      attendee_ids: attendee_ids || [uid],
       gcal_synced: !!gcal_synced,
       gcal_event_id: gcal_event_id || null,
-      created_by: currentSessionUser?.user_id || "user_admin1",
+      created_by: uid,
       created_at: new Date().toISOString()
     };
     db.meetings.push(m);
     db.activity.unshift({
       id: `act_${Date.now()}`,
-      actor_id: currentSessionUser?.user_id || "user_admin1",
+      actor_id: uid,
       action: "scheduled a meeting",
       task_id: m.id,
       task_title: m.title,
       created_at: new Date().toISOString()
     });
+    saveDbToFile();
     broadcast({ type: "meeting:new", data: m });
     res.json(m);
   });
 
   app.delete("/api/meetings/:id", (req, res) => {
+    const target = (db.meetings || []).find((m: any) => m.id === req.params.id);
+    if (target) {
+      const gcalId = target.gcal_event_id || (String(target.id).startsWith("gcal_") ? String(target.id).replace(/^gcal_/, "") : null);
+      if (gcalId) {
+        db.deleted_gcal_ids = Array.isArray(db.deleted_gcal_ids) ? db.deleted_gcal_ids : [];
+        if (!db.deleted_gcal_ids.includes(gcalId)) db.deleted_gcal_ids.push(gcalId);
+      }
+    }
     db.meetings = (db.meetings || []).filter((m: any) => m.id !== req.params.id);
+    saveDbToFile();
     broadcast({ type: "meeting:delete", id: req.params.id });
     res.json({ success: true });
   });
@@ -3106,50 +3766,146 @@ async function startServer() {
     res.json(m);
   });
 
+  function ensureUserCircleConversation(userId: string) {
+    if (!userId || userId === CIRCLE_BOT_ID) return null;
+    const circleConvId = `conv_circle_${userId}`;
+    let circleConv = db.conversations.find((c: any) => c.id === circleConvId);
+    if (!circleConv) {
+      circleConv = {
+        id: circleConvId,
+        type: "dm",
+        name: db.workspace?.assistant_name || "Circle",
+        admin_ids: [CIRCLE_BOT_ID],
+        member_ids: [CIRCLE_BOT_ID, userId],
+        members: [CIRCLE_BOT_ID, userId],
+        unread: 0,
+        is_member: true,
+        last_message_preview: "Asisten Workspace & Notifikasi Approval",
+        last_message_at: new Date().toISOString()
+      };
+      db.conversations.unshift(circleConv);
+    } else {
+      circleConv.member_ids = [CIRCLE_BOT_ID, userId];
+      circleConv.members = [CIRCLE_BOT_ID, userId];
+    }
+    return circleConv;
+  }
+
   app.get("/api/conversations", (req, res) => {
-    const userId = currentSessionUser?.user_id;
+    const reqUser = getReqUser(req);
+    const userId = reqUser?.user_id;
     if (!userId) return res.status(401).json({ detail: "Unauthorized" });
+
+    ensureUserCircleConversation(userId);
+
+    // Ensure active user is a member of verified official groups & General group
+    db.conversations.forEach((c: any) => {
+      if (c && (c.id === "conv_1" || c.is_verified) && c.type === "group") {
+        const mems = Array.isArray(c.member_ids) ? c.member_ids : (Array.isArray(c.members) ? c.members : []);
+        if (!mems.includes(userId)) {
+          mems.push(userId);
+        }
+        const clean = Array.from(new Set(mems.filter((id: string) => Boolean(id) && id !== CIRCLE_BOT_ID)));
+        c.member_ids = clean;
+        c.members = clean;
+      }
+    });
 
     const reqMap = new Map((db.access_requests || []).map((r: any) => [r.id, r]));
 
     const list = db.conversations
       .filter((c: any) => {
-        const mems = c.member_ids || c.members || [];
+        if (!c || !c.id) return false;
+        const mems = Array.isArray(c.member_ids) ? c.member_ids : (Array.isArray(c.members) ? c.members : []);
+
+        // Circle Assistant DM: strictly only show conv_circle_<userId> for this user
+        if (String(c.id).startsWith("conv_circle_")) {
+          return c.id === `conv_circle_${userId}`;
+        }
+
+        // Human DM: strictly must include userId and only have 2 members (or 1 if self-DM)
+        if (c.type === "dm") {
+          const uniqueMems = Array.from(new Set(mems.filter(Boolean)));
+          return uniqueMems.includes(userId) && uniqueMems.length <= 2;
+        }
+
+        // Group chat
         return mems.includes(userId);
       })
       .map((c: any) => {
-        const rawMems = c.member_ids || c.members || [];
+        const rawMems = Array.isArray(c.member_ids) ? c.member_ids : (Array.isArray(c.members) ? c.members : []);
         const cleanMems = c.type === "group" ? rawMems.filter((id: string) => id !== CIRCLE_BOT_ID) : rawMems;
         const convMsgs = (db.messages || [])
           .filter((m: any) => m.conversation_id === c.id)
           .slice(-50)
           .map((m: any) => ({
             ...m,
-            sender_id: m.sender_id || m.user_id || "user_admin1",
+            sender_id: m.sender_id || m.user_id,
             access_request: m.access_request?.id && reqMap.has(m.access_request.id)
               ? reqMap.get(m.access_request.id)
               : m.access_request
           }));
+        const lastMsg = convMsgs.length > 0 ? convMsgs[convMsgs.length - 1] : null;
+        const lastReadTs = c.reads?.[userId] || 0;
+        const unreadCount = convMsgs.filter(
+          (m: any) => m.sender_id !== userId && new Date(m.created_at).getTime() > lastReadTs
+        ).length;
+        const effectiveAt = lastMsg?.created_at || (c.type === "dm" ? c.last_message_at : null) || null;
+
         return {
           ...c,
+          name: c.type === "dm" && !String(c.id).startsWith("conv_circle_") ? "" : c.name,
           member_ids: cleanMems,
           members: cleanMems,
+          unread: lastReadTs ? unreadCount : (c.unread || 0),
+          last_message_preview: lastMsg
+            ? (lastMsg.type === "sticker" ? "[Stiker]" : (lastMsg.text || "Mengirim lampiran"))
+            : (String(c.id).startsWith("conv_circle_") ? "Asisten Workspace & Notifikasi Approval" : ""),
+          last_message_at: effectiveAt,
           messages: convMsgs
         };
+      })
+      .sort((a: any, b: any) => {
+        const aHas = Boolean((a.messages && a.messages.length > 0) || a.last_message_at);
+        const bHas = Boolean((b.messages && b.messages.length > 0) || b.last_message_at);
+        if (aHas !== bHas) return aHas ? -1 : 1;
+        const aTs = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+        const bTs = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+        if (bTs !== aTs) return bTs - aTs;
+        return String(a.name || "").localeCompare(String(b.name || ""));
       });
     res.json(list);
   });
 
   app.post("/api/conversations/dm", (req, res) => {
-    const { user_id } = req.body;
-    const myId = currentSessionUser?.user_id || "user_admin1";
-    let c = db.conversations.find((x: any) => x.type === "dm" && ((x.member_ids && x.member_ids.includes(user_id)) || (x.members && x.members.includes(user_id))));
+    const { user_id } = req.body || {};
+    const reqUser = getReqUser(req);
+    const myId = reqUser?.user_id;
+    if (!myId) return res.status(401).json({ detail: "Unauthorized" });
+    if (!user_id) return res.status(400).json({ detail: "Target user_id is required" });
+
+    // Special case: DM with Circle Assistant
+    if (user_id === CIRCLE_BOT_ID) {
+      const circleConv = ensureUserCircleConversation(myId);
+      return res.json(circleConv);
+    }
+
+    const expectedPair = Array.from(new Set([myId, user_id])).sort();
+
+    let c = db.conversations.find((x: any) => {
+      if (!x || x.type !== "dm" || String(x.id || "").startsWith("conv_circle_")) return false;
+      const rawMems = Array.isArray(x.member_ids) ? x.member_ids : (Array.isArray(x.members) ? x.members : []);
+      const uniqueMems = Array.from(new Set(rawMems.filter(Boolean))).sort();
+      if (uniqueMems.length !== expectedPair.length) return false;
+      return uniqueMems.every((id, idx) => id === expectedPair[idx]);
+    });
+
     if (!c) {
-      const mems = [myId, user_id].filter(Boolean);
+      const mems = Array.from(new Set([myId, user_id].filter(Boolean)));
       c = {
-        id: `conv_${Date.now()}`,
+        id: `conv_dm_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         type: "dm",
-        name: "Direct Message",
+        name: "",
         admin_ids: [],
         members: mems,
         member_ids: mems,
@@ -3158,22 +3914,39 @@ async function startServer() {
         last_message_at: new Date().toISOString()
       };
       db.conversations.push(c);
+      saveDbToFile();
     }
+
     res.json({
       ...c,
+      name: "",
       member_ids: c.member_ids || c.members || [],
       members: c.members || c.member_ids || []
     });
   });
 
   app.get("/api/conversations/:id", (req, res) => {
-    const userId = currentSessionUser?.user_id;
+    const reqUser = getReqUser(req);
+    const userId = reqUser?.user_id;
     if (!userId) return res.status(401).json({ detail: "Unauthorized" });
+
+    if (req.params.id === `conv_circle_${userId}`) {
+      ensureUserCircleConversation(userId);
+    }
 
     let c = db.conversations.find((x: any) => x.id === req.params.id);
     if (!c) {
-      // Fallback for default general group if it doesn't exist yet
-      if (req.params.id === 'conv_1') {
+      const grp = (db.groups || []).find((g: any) => g.id === req.params.id);
+      if (grp) {
+        c = {
+          ...grp,
+          type: "group",
+          member_ids: Array.isArray(grp.member_ids) ? grp.member_ids : [],
+          members: Array.isArray(grp.member_ids) ? grp.member_ids : [],
+          unread: 0
+        };
+        db.conversations.push(c);
+      } else if (req.params.id === 'conv_1') {
         c = {
           id: 'conv_1',
           type: "group",
@@ -3191,16 +3964,24 @@ async function startServer() {
       }
     }
 
+    if (String(c.id).startsWith("conv_circle_") && c.id !== `conv_circle_${userId}`) {
+      return res.status(403).json({ detail: "Conversation ini milik akun lain" });
+    }
+
     const rawMems = c.member_ids || c.members || [];
     const mems = c.type === "group" ? rawMems.filter((id: string) => id !== CIRCLE_BOT_ID) : rawMems;
     if (!mems.includes(userId)) {
-      return res.status(403).json({ detail: "You are not a member of this conversation" });
+      if (c.type === "dm") {
+        return res.status(403).json({ detail: "You are not a member of this conversation" });
+      }
     }
 
     res.json({
       ...c,
+      name: c.type === "dm" && !String(c.id).startsWith("conv_circle_") ? "" : c.name,
       member_ids: mems,
       members: mems,
+      is_member: mems.includes(userId),
       pinned: (db.messages || []).filter((m: any) => m.conversation_id === c.id && m.pinned),
       files: [],
       tasks: []
@@ -3209,11 +3990,16 @@ async function startServer() {
 
   app.get("/api/conversations/:id/messages", (req, res) => {
     const { id } = req.params;
-    const userId = currentSessionUser?.user_id;
+    const reqUser = getReqUser(req);
+    const userId = reqUser?.user_id;
     if (!userId) return res.status(401).json({ detail: "Unauthorized" });
 
+    if (String(id).startsWith("conv_circle_") && id !== `conv_circle_${userId}`) {
+      return res.status(403).json({ detail: "Conversation ini milik akun lain" });
+    }
+
     const c = db.conversations.find((x: any) => x.id === id);
-    if (c) {
+    if (c && c.type === "dm") {
       const mems = c.member_ids || c.members || [];
       if (!mems.includes(userId)) {
         return res.status(403).json({ detail: "You are not a member of this conversation" });
@@ -3230,37 +4016,54 @@ async function startServer() {
       list = list.filter((m: any) => new Date(m.created_at) < new Date(String(before)));
     }
     const reqMap = new Map((db.access_requests || []).map((r: any) => [r.id, r]));
-    list = list.map((m: any) => ({
-      ...m,
-      sender_id: m.sender_id || m.user_id || "user_admin1",
-      access_request: m.access_request?.id && reqMap.has(m.access_request.id)
-        ? reqMap.get(m.access_request.id)
-        : m.access_request
-    }));
+    list = list.map((m: any) => {
+      const pollId = m.poll_id || m.poll?.id;
+      const foundPoll = pollId ? (db.polls || []).find((p: any) => p.id === pollId) || m.poll : null;
+      return {
+        ...m,
+        sender_id: m.sender_id || m.user_id,
+        ...(foundPoll ? { poll: formatPollForUser(foundPoll, userId) } : {}),
+        access_request: m.access_request?.id && reqMap.has(m.access_request.id)
+          ? reqMap.get(m.access_request.id)
+          : m.access_request
+      };
+    });
     res.json(list);
   });
 
   app.post("/api/conversations/:id/messages", (req, res) => {
     const { id } = req.params;
-    const sender_id = currentSessionUser?.user_id || "user_admin1";
+    const senderUser = getReqUser(req);
+    const sender_id = senderUser?.user_id;
+    if (!sender_id) return res.status(401).json({ detail: "Unauthorized" });
+
+    if (id === `conv_circle_${sender_id}`) {
+      ensureUserCircleConversation(sender_id);
+    }
 
     const conv = db.conversations.find((x: any) => x.id === id);
     if (!conv) return res.status(404).json({ detail: "Conversation not found" });
 
-    const mems = conv.member_ids || conv.members || [];
+    if (String(conv.id).startsWith("conv_circle_") && conv.id !== `conv_circle_${sender_id}`) {
+      return res.status(403).json({ detail: "Tidak dapat mengirim pesan ke Circle Assistant milik akun lain" });
+    }
+
+    const mems = Array.isArray(conv.member_ids) ? conv.member_ids : (Array.isArray(conv.members) ? conv.members : []);
     if (!mems.includes(sender_id)) {
-      if (conv.type === "dm" || currentSessionUser?.role === "super_admin") {
-        if (!Array.isArray(conv.member_ids)) conv.member_ids = [];
-        conv.member_ids.push(sender_id);
+      // Never push a 3rd user into a private DM! Only allow joining group chats if admin
+      if (conv.type === "group" && senderUser?.role === "super_admin") {
+        mems.push(sender_id);
+        conv.member_ids = mems;
+        conv.members = mems;
       } else {
-        return res.status(403).json({ detail: "You are not a member of this conversation" });
+        return res.status(403).json({ detail: "Anda bukan anggota percakapan ini" });
       }
     }
 
     const stickerObj = req.body.sticker || (req.body.sticker_id && (db.stickers || []).find((s: any) => s.id === req.body.sticker_id));
 
     const msg = {
-      id: `msg_${Date.now()}`,
+      id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       conversation_id: id,
       sender_id,
       user_id: sender_id,
@@ -3278,10 +4081,29 @@ async function startServer() {
     if (conv) {
       conv.last_message_preview = msg.type === "sticker" ? `[Stiker] ${stickerObj?.name || 'Stiker'}` : (msg.text || "Sent an attachment");
       conv.last_message_at = msg.created_at;
+      conv.reads = conv.reads || {};
+      conv.reads[sender_id] = Date.now();
     }
 
-    broadcast({ type: "message:new", data: msg });
-    
+    broadcast({ type: "message:new", data: { ...msg, member_ids: mems } });
+
+    // Notify other DM participant(s)
+    if (conv.type === "dm") {
+      mems.forEach((targetUid: string) => {
+        if (!targetUid || targetUid === sender_id || targetUid === CIRCLE_BOT_ID) return;
+        createNotification({
+          user_id: targetUid,
+          title: `Pesan baru dari ${senderUser?.name || "Rekan Kerja"}`,
+          body: msg.type === "sticker" ? `[Stiker] ${stickerObj?.name || ""}` : (msg.text?.slice(0, 80) || "Mengirim lampiran"),
+          type: "dm",
+          category: "dm",
+          actor_id: sender_id,
+          link: `/messages/${id}`,
+          conversation_id: id
+        });
+      });
+    }
+
     // Notify mentioned users in chat
     if (Array.isArray(msg.mention_ids)) {
       msg.mention_ids.forEach((userId: string) => {
@@ -3289,7 +4111,7 @@ async function startServer() {
         createNotification({
           user_id: userId,
           title: "Anda disebut dalam pesan",
-          body: `${currentSessionUser?.name || "Seseorang"} menyebut Anda dalam pesan: "${msg.text?.slice(0, 50)}${msg.text?.length > 50 ? '...' : ''}"`,
+          body: `${senderUser?.name || "Seseorang"} menyebut Anda dalam pesan: "${msg.text?.slice(0, 50)}${msg.text?.length > 50 ? '...' : ''}"`,
           type: "message_mention",
           category: "dm",
           actor_id: sender_id,
@@ -3343,7 +4165,7 @@ async function startServer() {
         db.messages.push(botMsg);
         conv.last_message_preview = replyText;
         conv.last_message_at = botMsg.created_at;
-        broadcast({ type: "message:new", data: botMsg });
+        broadcast({ type: "message:new", data: { ...botMsg, member_ids: mems } });
         broadcast({ type: "conversations:changed" });
         saveDbToFile();
       });
@@ -3353,7 +4175,8 @@ async function startServer() {
   });
 
   app.post("/api/conversations/:id/read", (req, res) => {
-    const userId = currentSessionUser?.user_id || "user_admin1";
+    const reqUser = getReqUser(req);
+    const userId = reqUser?.user_id || "user_admin1";
     const conv = db.conversations.find((x: any) => x.id === req.params.id);
     if (conv) {
       conv.reads = conv.reads || {};
@@ -3414,17 +4237,32 @@ async function startServer() {
   });
 
   app.post("/api/groups/:id/join", (req, res) => {
-    const userId = currentSessionUser?.user_id || "user_admin1";
+    const reqUser = getReqUser(req);
+    const userId = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
+    let joinedGroup: any = null;
     [db.groups, db.conversations].forEach(list => {
       const g = list.find((x: any) => x.id === req.params.id);
       if (g) {
-        g.member_ids = Array.from(new Set([...(g.member_ids || []), userId]));
+        const cleanMems = Array.from(new Set([...(g.member_ids || g.members || []), userId])).filter((id: any) => Boolean(id) && id !== CIRCLE_BOT_ID);
+        g.member_ids = cleanMems;
+        g.members = cleanMems;
+        g.member_count = cleanMems.length;
+        joinedGroup = g;
       }
     });
-    res.json({ success: true });
+    if (joinedGroup && !db.conversations.some((c: any) => c.id === joinedGroup.id)) {
+      db.conversations.push({ ...joinedGroup, type: "group" });
+    }
+    saveDbToFile();
+    if (joinedGroup) {
+      broadcast({ type: "group:updated", data: { ...joinedGroup, is_member: true } });
+      broadcast({ type: "conversation:upsert", data: { ...joinedGroup, type: "group", is_member: true } });
+    }
+    res.json(joinedGroup ? { ...joinedGroup, is_member: true } : { success: true });
   });
 
   app.post("/api/groups/:id/members", (req, res) => {
+    let updatedGroup: any = null;
     [db.groups, db.conversations].forEach(list => {
       const g = list.find((x: any) => x.id === req.params.id);
       if (g) {
@@ -3434,6 +4272,8 @@ async function startServer() {
           g.member_ids = Array.from(new Set([...g.member_ids, ...validAdd]));
         }
         if (req.body.remove) g.member_ids = g.member_ids.filter((x: any) => !req.body.remove.includes(x));
+        g.members = g.member_ids;
+        g.member_count = g.member_ids.length;
         if (req.body.admin_id && req.body.admin_id !== CIRCLE_BOT_ID) {
           g.admin_ids = g.admin_ids || [];
           if (req.body.make_admin) {
@@ -3442,31 +4282,57 @@ async function startServer() {
             g.admin_ids = g.admin_ids.filter((x: any) => x !== req.body.admin_id);
           }
         }
+        updatedGroup = g;
       }
     });
     saveDbToFile();
-    res.json({ success: true });
+    if (updatedGroup) {
+      broadcast({ type: "group:updated", data: updatedGroup });
+    }
+    res.json(updatedGroup || { success: true });
   });
 
   app.post("/api/groups/:id/leave", (req, res) => {
-    const userId = currentSessionUser?.user_id || "user_admin1";
+    const reqUser = getReqUser(req);
+    const userId = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
+    let leftGroup: any = null;
     [db.groups, db.conversations].forEach(list => {
       const g = list.find((x: any) => x.id === req.params.id);
       if (g) {
-        g.member_ids = (g.member_ids || []).filter((x: any) => x !== userId);
+        g.member_ids = (g.member_ids || []).filter((x: any) => x !== userId && x !== CIRCLE_BOT_ID);
+        g.members = g.member_ids;
+        g.member_count = g.member_ids.length;
+        leftGroup = g;
       }
     });
+    saveDbToFile();
+    if (leftGroup) {
+      broadcast({ type: "group:updated", data: leftGroup });
+    }
     res.json({ success: true });
   });
 
   app.patch("/api/groups/:id", (req, res) => {
-    const conv = db.conversations.find((x: any) => x.id === req.params.id);
-    if (conv) Object.assign(conv, req.body);
-    res.json(conv || { success: true });
+    let updated: any = null;
+    [db.groups, db.conversations].forEach((list) => {
+      const g = list.find((x: any) => x.id === req.params.id);
+      if (g) {
+        Object.assign(g, req.body);
+        updated = g;
+      }
+    });
+    saveDbToFile();
+    if (updated) {
+      broadcast({ type: "group:updated", data: updated });
+    }
+    res.json(updated || { success: true });
   });
 
   app.delete("/api/groups/:id", (req, res) => {
-    db.conversations = db.conversations.filter((x: any) => x.id !== req.params.id);
+    db.groups = (db.groups || []).filter((x: any) => x.id !== req.params.id);
+    db.conversations = (db.conversations || []).filter((x: any) => x.id !== req.params.id);
+    saveDbToFile();
+    broadcast({ type: "group:deleted", id: req.params.id });
     res.json({ success: true });
   });
 
@@ -3584,7 +4450,7 @@ async function startServer() {
     res.json(newPack);
   });
 
-  const formatPollForUser = (poll: any, uid: string) => {
+  function formatPollForUser(poll: any, uid: string) {
     if (!poll) return null;
     const options = Array.isArray(poll.options)
       ? poll.options.map((o: any, idx: number) =>
@@ -3619,7 +4485,7 @@ async function startServer() {
       my_vote: votesByUser[uid] || [],
       total_votes: totalVotes
     };
-  };
+  }
 
   app.get("/api/polls/:id", (req, res) => {
     db.polls = db.polls || [];

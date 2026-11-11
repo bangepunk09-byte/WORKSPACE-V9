@@ -327,24 +327,34 @@ export default function MessageItem({ m, mine, grouped, conv, onReply, onCreateT
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(m.text);
   const navigate = useNavigate();
-  const sender = userMap[m.sender_id];
+  const senderId = m.sender_id || m.user_id;
+  const isMine = Boolean(mine || (me?.user_id && senderId === me.user_id));
+  const sender = userMap[senderId] || (isMine ? me : null);
   const act = (fn) => async () => { try { await fn(); } catch (e) { toast.error(errMsg(e)); } };
   const react = (emoji) => act(() => api.post(`/messages/${m.id}/react`, { emoji }))();
   const save = act(async () => { await api.patch(`/messages/${m.id}`, { text: val }); setEditing(false); });
 
-
-  const bubble = mine ? "bg-brand text-white rounded-br-md" : "bg-surface border rounded-bl-md";
+  const bubble = isMine ? "bg-brand text-white rounded-br-md shadow-xs" : "bg-surface border border-slate-200/80 dark:border-slate-700 text-ink rounded-bl-md shadow-xs";
   const images = (m.attachments || []).filter((a) => a.content_type?.startsWith("image/"));
   const docs = (m.attachments || []).filter((a) => !a.content_type?.startsWith("image/"));
   const plain = m.type === "sticker" || m.type === "poll" || m.type === "task" || m.type === "approval_card" || m.type === "access_request_card";
   return (
-    <div className={`group flex gap-2.5 ${mine ? "flex-row-reverse" : ""} ${grouped ? "mt-0.5" : "mt-4"}`} data-testid={`message-${m.id}`}>
-      <div className="w-8 shrink-0">{!grouped && !mine && <Avatar user={sender} size={32} />}</div>
-      <div className={`flex min-w-0 max-w-[82%] sm:max-w-[70%] flex-col ${mine ? "items-end" : "items-start"}`}>
-        {!grouped && <p className="mb-1 px-1 text-[11px] text-sub"><b className="font-semibold text-ink">{mine ? "You" : sender?.name}</b> · {fmtTime(m.created_at)}{m.pinned && <Pin size={10} className="ml-1 inline text-brand" />}</p>}
+    <div className={`group flex w-full gap-2.5 ${isMine ? "flex-row-reverse justify-start" : "flex-row justify-start"} ${grouped ? "mt-0.5" : "mt-4"}`} data-testid={`message-${m.id}`}>
+      {!isMine && (
+        <div className="w-8 shrink-0">
+          {!grouped && <Avatar user={sender} size={32} />}
+        </div>
+      )}
+      <div className={`flex min-w-0 max-w-[82%] sm:max-w-[70%] flex-col ${isMine ? "items-end" : "items-start"}`}>
+        {!grouped && (
+          <p className={`mb-1 px-1 text-[11px] text-sub ${isMine ? "text-right" : "text-left"}`}>
+            <b className="font-semibold text-ink">{isMine ? "You" : (sender?.name || "Member")}</b> · {fmtTime(m.created_at)}
+            {m.pinned && <Pin size={10} className="ml-1 inline text-brand" />}
+          </p>
+        )}
         {m.reply_to && <div className={`mb-1 max-w-full truncate rounded-xl border-l-4 border-[var(--c-accent)] bg-surface2 px-2.5 py-1 text-xs text-sub`}>{userMap[m.reply_to.sender_id]?.name}: {m.reply_to.text}</div>}
         <div className="flex items-center gap-1">
-          <div className={`min-w-0 ${mine ? "order-2" : ""}`}>
+          <div className={`min-w-0 ${isMine ? "order-2" : ""}`}>
             {m.deleted ? <div className="rounded-2xl border border-dashed px-3 py-2 text-sm italic text-sub">Message deleted</div> : (<>
               {m.type === "sticker" && m.sticker && <StickerTile s={m.sticker} size={120} />}
               {m.type === "poll" && <PollCard pollId={m.poll_id} />}
@@ -359,16 +369,16 @@ export default function MessageItem({ m, mine, grouped, conv, onReply, onCreateT
             </>)}
           </div>
           {!m.deleted && !editing && (
-            <div className={`flex items-center opacity-100 md:opacity-0 transition-opacity group-hover:opacity-100 ${mine ? "order-1" : ""}`}>
+            <div className={`flex items-center opacity-100 md:opacity-0 transition-opacity group-hover:opacity-100 ${isMine ? "order-1" : ""}`}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild><button className="flex h-8 w-8 items-center justify-center rounded-full text-sub hover:bg-surface2" aria-label="Message actions" data-testid={`message-actions-${m.id}`}><MoreHorizontal size={16} /></button></DropdownMenuTrigger>
-                <DropdownMenuContent align={mine ? "end" : "start"} className="bg-surface">
+                <DropdownMenuContent align={isMine ? "end" : "start"} className="bg-surface">
                   <div className="flex gap-0.5 p-1">{QUICK.map((e) => <DropdownMenuItem key={e} onClick={() => react(e)} className="h-8 w-8 justify-center rounded-lg p-0 text-lg" data-testid={`react-${e}`}>{e}</DropdownMenuItem>)}</div>
                   <DropdownMenuItem onClick={() => onReply(m)} data-testid="action-reply"><Reply size={14} className="mr-2" />Reply</DropdownMenuItem>
                   <DropdownMenuItem onClick={act(() => api.post(`/messages/${m.id}/pin`))} data-testid="action-pin"><Pin size={14} className="mr-2" />{m.pinned ? "Unpin" : "Pin"}</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => onCreateTask(m)} data-testid="action-create-task"><CheckSquare size={14} className="mr-2" />Create task</DropdownMenuItem>
-                  {mine && m.type === "text" && <DropdownMenuItem onClick={() => setEditing(true)} data-testid="action-edit"><Pencil size={14} className="mr-2" />Edit</DropdownMenuItem>}
-                  {(mine || conv?.admin_ids?.includes(me?.user_id) || conv?.type === "dm" || conv?.type === "group_message") && <DropdownMenuItem onClick={act(() => api.delete(`/messages/${m.id}`))} className="text-rose-600" data-testid="action-delete"><Trash2 size={14} className="mr-2" />Delete</DropdownMenuItem>}
+                  {isMine && m.type === "text" && <DropdownMenuItem onClick={() => setEditing(true)} data-testid="action-edit"><Pencil size={14} className="mr-2" />Edit</DropdownMenuItem>}
+                  {(isMine || conv?.admin_ids?.includes(me?.user_id) || conv?.type === "dm" || conv?.type === "group_message") && <DropdownMenuItem onClick={act(() => api.delete(`/messages/${m.id}`))} className="text-rose-600" data-testid="action-delete"><Trash2 size={14} className="mr-2" />Delete</DropdownMenuItem>}
                 </DropdownMenuContent>
               </DropdownMenu>
               <button onClick={() => react("👍")} className="hidden h-8 w-8 items-center justify-center rounded-full text-sub hover:bg-surface2 md:flex" aria-label="React"><Smile size={15} /></button>
@@ -376,9 +386,9 @@ export default function MessageItem({ m, mine, grouped, conv, onReply, onCreateT
           )}
         </div>
         {Object.keys(m.reactions || {}).length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-1">{Object.entries(m.reactions).map(([e, us]) => <button key={e} onClick={() => react(e)} title={us.map((u) => userMap[u]?.name).join(", ")} className={`rounded-full border px-2 py-0.5 text-xs ${us.includes(me.user_id) ? "border-[var(--c-accent)] bg-soft-red" : "bg-surface"}`} data-testid={`reaction-${e}`}>{e} {us.length}</button>)}</div>
+          <div className="mt-1 flex flex-wrap gap-1">{Object.entries(m.reactions).map(([e, us]) => <button key={e} onClick={() => react(e)} title={us.map((u) => userMap[u]?.name).join(", ")} className={`rounded-full border px-2 py-0.5 text-xs ${us.includes(me?.user_id) ? "border-[var(--c-accent)] bg-soft-red" : "bg-surface"}`} data-testid={`reaction-${e}`}>{e} {us.length}</button>)}</div>
         )}
-        {mine && readBy !== undefined && <span className="mt-0.5 flex items-center gap-0.5 text-[10px] text-sub" data-testid="read-receipt">{readBy > 0 ? <><CheckCheck size={12} className="text-blue-500" />Read{conv.type === "group" ? ` by ${readBy}` : ""}</> : <><Check size={12} />Delivered</>}</span>}
+        {isMine && readBy !== undefined && <span className="mt-0.5 flex items-center gap-0.5 text-[10px] text-sub" data-testid="read-receipt">{readBy > 0 ? <><CheckCheck size={12} className="text-blue-500" />Read{conv.type === "group" ? ` by ${readBy}` : ""}</> : <><Check size={12} />Delivered</>}</span>}
       </div>
     </div>
   );

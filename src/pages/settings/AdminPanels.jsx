@@ -215,35 +215,39 @@ export function PeopleAccess() {
             <p className="text-xs text-sub leading-relaxed max-w-md">
               Karyawan baru atau akun Google yang belum terdaftar dapat mengajukan permintaan login. Permintaan diteruskan melalui Asisten <b className="text-ink">"Circle"</b> berupa Approval Card.
             </p>
-            <div className="flex items-center gap-1.5 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
               <button
+                type="button"
                 onClick={() => setReqFilter("all")}
-                className={`rounded-full px-3 py-1 font-semibold transition-all ${
-                  reqFilter === "all" ? "bg-brand text-white shadow-2xs" : "bg-surface2 text-sub hover:text-ink"
+                className={`h-10 rounded-2xl px-4 text-sm font-semibold transition-colors cursor-pointer ${
+                  reqFilter === "all" ? "bg-brand text-white shadow-xs" : "bg-surface2 text-ink hover:bg-surface2/70"
                 }`}
               >
                 Semua ({accessRequests.length})
               </button>
               <button
+                type="button"
                 onClick={() => setReqFilter("pending")}
-                className={`rounded-full px-3 py-1 font-semibold transition-all ${
-                  reqFilter === "pending" ? "bg-amber-500 text-white shadow-2xs" : "bg-surface2 text-sub hover:text-ink"
+                className={`h-10 rounded-2xl px-4 text-sm font-semibold transition-colors cursor-pointer ${
+                  reqFilter === "pending" ? "bg-amber-500 text-white shadow-xs" : "bg-surface2 text-ink hover:bg-surface2/70"
                 }`}
               >
                 Menunggu ({pendingCount})
               </button>
               <button
+                type="button"
                 onClick={() => setReqFilter("approved")}
-                className={`rounded-full px-3 py-1 font-semibold transition-all ${
-                  reqFilter === "approved" ? "bg-emerald-600 text-white shadow-2xs" : "bg-surface2 text-sub hover:text-ink"
+                className={`h-10 rounded-2xl px-4 text-sm font-semibold transition-colors cursor-pointer ${
+                  reqFilter === "approved" ? "bg-emerald-600 text-white shadow-xs" : "bg-surface2 text-ink hover:bg-surface2/70"
                 }`}
               >
                 Disetujui
               </button>
               <button
+                type="button"
                 onClick={() => setReqFilter("rejected")}
-                className={`rounded-full px-3 py-1 font-semibold transition-all ${
-                  reqFilter === "rejected" ? "bg-rose-500 text-white shadow-2xs" : "bg-surface2 text-sub hover:text-ink"
+                className={`h-10 rounded-2xl px-4 text-sm font-semibold transition-colors cursor-pointer ${
+                  reqFilter === "rejected" ? "bg-rose-500 text-white shadow-xs" : "bg-surface2 text-ink hover:bg-surface2/70"
                 }`}
               >
                 Ditolak

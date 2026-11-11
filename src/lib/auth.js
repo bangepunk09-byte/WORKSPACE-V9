@@ -6,11 +6,15 @@ import firebaseConfig from '../../firebase-applet-config.json';
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
+export const SCOPES = [
+  'https://www.googleapis.com/auth/calendar.events',
+];
+
 const provider = new GoogleAuthProvider();
-provider.addScope('https://www.googleapis.com/auth/userinfo.email');
-provider.addScope('https://www.googleapis.com/auth/userinfo.profile');
-provider.addScope('https://www.googleapis.com/auth/calendar.events');
-provider.addScope('https://www.googleapis.com/auth/drive.file');
+provider.addScope('email');
+provider.addScope('profile');
+SCOPES.forEach((scope) => provider.addScope(scope));
+provider.setCustomParameters({ prompt: 'select_account' });
 
 let isSigningIn = false;
 let cachedAccessToken = null;
@@ -42,7 +46,7 @@ export const googleSignIn = async () => {
     cachedAccessToken = credential.accessToken;
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error) {
-    if (error.code === 'auth/popup-closed-by-user') {
+    if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
       console.warn('Sign in popup closed by user');
       return null;
     }
@@ -57,7 +61,10 @@ export const getAccessToken = async () => {
   return cachedAccessToken;
 };
 
+export const hasAccessToken = () => Boolean(cachedAccessToken);
+
 export const logout = async () => {
   await auth.signOut();
   cachedAccessToken = null;
 };
+

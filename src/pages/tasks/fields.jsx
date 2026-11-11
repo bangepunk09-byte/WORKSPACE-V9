@@ -10,7 +10,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from ".
 export const CARD_COLORS = ["#FF5364", "#F59E0B", "#EAB308", "#22C55E", "#0EA5A4", "#2F7DE1", "#8B5CF6", "#EC4899", "#64748B"];
 export const inp = "h-10 w-full rounded-xl border bg-surface2 px-3 text-sm outline-none";
 
-export function UserSelect({ value, onChange, placeholder = "Unassigned", testid, ids }) {
+export function UserSelect({ value, onChange, placeholder = "Unassigned", testid, ids, className }) {
   const { users } = useApp();
   const humanUsers = (users || []).filter(
     (u) => u && !u.is_bot && u.role !== "assistant" && u.user_id !== "user_circle_assistant"
@@ -24,7 +24,7 @@ export function UserSelect({ value, onChange, placeholder = "Unassigned", testid
     <select
       value={value || ""}
       onChange={(e) => onChange(e.target.value || null)}
-      className={inp}
+      className={className || inp}
       data-testid={testid}
     >
       <option value="">{placeholder}</option>

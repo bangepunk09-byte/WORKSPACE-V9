@@ -4,7 +4,52 @@
     <meta charset="UTF-8" />
     <script>
       (function() {
-        // Suppress benign Vite HMR closed WebSocket error in AI Studio iframe environment
+        // Prevent @vite/client from throwing "WebSocket closed without opened" in proxy/iframe environments where HMR is disabled
+        var NativeWebSocket = window.WebSocket;
+        if (NativeWebSocket) {
+          var WrappedWebSocket = function(url, protocols) {
+            var isViteHmr = protocols === 'vite-hmr' || (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1);
+            if (isViteHmr) {
+              var fakeWs = {
+                url: url,
+                protocol: 'vite-hmr',
+                readyState: 1,
+                 bufferedAmount: 0,
+                extensions: '',
+                binaryType: 'blob',
+                CONNECTING: 0,
+                OPEN: 1,
+                CLOSING: 2,
+                CLOSED: 3,
+                send: function() {},
+                close: function() { this.readyState = 3; },
+                addEventListener: function(type, listener) {
+                  if (type === 'open' && typeof listener === 'function') {
+                    setTimeout(function() { listener({ type: 'open' }); }, 10);
+                  }
+                  if (type === 'message' && typeof listener === 'function') {
+                    setTimeout(function() { listener({ type: 'message', data: JSON.stringify({ type: 'connected' }) }); }, 20);
+                  }
+                },
+                removeEventListener: function() {},
+                dispatchEvent: function() { return true; }
+              };
+              setTimeout(function() {
+                if (typeof fakeWs.onopen === 'function') fakeWs.onopen({ type: 'open' });
+                if (typeof fakeWs.onmessage === 'function') fakeWs.onmessage({ type: 'message', data: JSON.stringify({ type: 'connected' }) });
+              }, 15);
+              return fakeWs;
+            }
+            return protocols !== undefined ? new NativeWebSocket(url, protocols) : new NativeWebSocket(url);
+          };
+          WrappedWebSocket.prototype = NativeWebSocket.prototype;
+          WrappedWebSocket.CONNECTING = NativeWebSocket.CONNECTING;
+          WrappedWebSocket.OPEN = NativeWebSocket.OPEN;
+          WrappedWebSocket.CLOSING = NativeWebSocket.CLOSING;
+          WrappedWebSocket.CLOSED = NativeWebSocket.CLOSED;
+          window.WebSocket = WrappedWebSocket;
+        }
+
         window.addEventListener('unhandledrejection', function(event) {
           var reason = event && (event.reason?.message || event.reason || '');
           if (typeof reason === 'string' && (reason.indexOf('WebSocket closed without opened') !== -1 || reason.indexOf('failed to connect to websocket') !== -1)) {
@@ -19,14 +64,6 @@
             event.stopImmediatePropagation();
           }
         }, true);
-        var origError = console.error;
-        console.error = function() {
-          var text = Array.prototype.slice.call(arguments).join(' ');
-          if (text.indexOf('failed to connect to websocket') !== -1 || text.indexOf('WebSocket closed without opened') !== -1) {
-            return;
-          }
-          return origError.apply(console, arguments);
-        };
       })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
