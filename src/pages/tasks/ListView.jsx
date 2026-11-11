@@ -122,9 +122,9 @@ function Cell({ k, t, projects, patch, onOpen }) {
           }`}
           data-testid={`sheet-compliance-${t.id}`}
         >
-          <option value="Tepat Waktu">Tepat Waktu (On-Time)</option>
-          <option value="Terlambat">Terlambat (Delayed)</option>
-          <option value="Dalam Proses">Dalam Proses (In Progress)</option>
+          <option value="Tepat Waktu">Tepat Waktu</option>
+          <option value="Terlambat">Terlambat</option>
+          <option value="Dalam Proses">Dalam Proses</option>
         </select>
       );
     }

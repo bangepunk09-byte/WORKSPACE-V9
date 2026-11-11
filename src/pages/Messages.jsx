@@ -47,8 +47,22 @@ function NewDM({ open, onOpenChange, convs, onCreated }) {
   );
 }
 
-function getDefaultConvsForUser(uid) {
-  const userId = uid || "user_admin1";
+function getDefaultConvsForUser(user) {
+  const userId = user?.user_id || "user_admin1";
+  const isSuper = user?.role === "super_admin";
+  const userDept = String(user?.department || "").trim().toLowerCase();
+  const allOfficial = [
+    { id: "group_official_marketing", type: "group", name: "Marketing", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" },
+    { id: "group_official_sales", type: "group", name: "Sales", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" },
+    { id: "group_official_it", type: "group", name: "IT", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" },
+    { id: "group_official_finance", type: "group", name: "Finance", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" },
+    { id: "group_official_legal", type: "group", name: "Legal", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" },
+    { id: "group_official_hrga", type: "group", name: "HRGA", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" }
+  ];
+  const filteredGroups = isSuper
+    ? allOfficial
+    : allOfficial.filter((g) => g.name.toLowerCase() === userDept);
+
   return [
     {
       id: `conv_circle_${userId}`,
@@ -59,12 +73,7 @@ function getDefaultConvsForUser(uid) {
       last_message_preview: "Halo! Saya Circle, asisten workspace Anda.",
       last_message_at: new Date().toISOString()
     },
-    { id: "group_official_marketing", type: "group", name: "Marketing", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" },
-    { id: "group_official_sales", type: "group", name: "Sales", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" },
-    { id: "group_official_it", type: "group", name: "IT", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" },
-    { id: "group_official_finance", type: "group", name: "Finance", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" },
-    { id: "group_official_legal", type: "group", name: "Legal", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" },
-    { id: "group_official_hrga", type: "group", name: "HRGA", is_verified: true, member_ids: [userId], unread: 0, last_message_preview: "No messages yet" }
+    ...filteredGroups
   ];
 }
 
@@ -82,7 +91,7 @@ export default function Messages() {
         }
       }
     } catch {}
-    return getDefaultConvsForUser(me?.user_id);
+    return getDefaultConvsForUser(me);
   });
   const [q, setQ] = useState("");
   const [tab, setTab] = useState("all");
@@ -110,14 +119,14 @@ export default function Messages() {
         if (Array.isArray(parsed) && parsed.length > 0) {
           setConvs(parsed);
         } else {
-          setConvs(getDefaultConvsForUser(me.user_id));
+          setConvs(getDefaultConvsForUser(me));
         }
       } else {
-        setConvs(getDefaultConvsForUser(me.user_id));
+        setConvs(getDefaultConvsForUser(me));
       }
     } catch {}
     load();
-  }, [me?.user_id, load]);
+  }, [me?.user_id, me?.department, load]);
 
   // Clear unread badge in 0ms when opening a conversation
   const handleRead = useCallback((readCid) => {

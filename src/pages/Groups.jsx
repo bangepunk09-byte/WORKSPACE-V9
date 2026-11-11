@@ -59,11 +59,10 @@ export default function Groups() {
 
   const load = useCallback(() => {
     api.get("/groups/browse").then((r) => {
-      const arr = Array.isArray(r.data) ? r.data : [];
-      if (arr.length > 0) {
-        GROUPS_CACHE = arr;
-        setGroups(arr);
-        try { localStorage.setItem("circle_groups_cache", JSON.stringify(arr)); } catch {}
+      if (Array.isArray(r.data)) {
+        GROUPS_CACHE = r.data;
+        setGroups(r.data);
+        try { localStorage.setItem("circle_groups_cache", JSON.stringify(r.data)); } catch {}
       }
     }).catch(() => {});
   }, []);
@@ -89,7 +88,7 @@ export default function Groups() {
       GROUPS_CACHE = next;
       setGroups(next);
       try { localStorage.setItem("circle_groups_cache", JSON.stringify(next)); } catch {}
-    } else if (e.type === "groups:changed") {
+    } else if (e.type === "groups:changed" || e.type === "workspace:changed" || e.type === "org:changed") {
       load();
     }
   }), [subscribe, load, me?.user_id]);
@@ -130,7 +129,14 @@ export default function Groups() {
     });
   };
 
-  const list = (groups || []).filter((g) => filter === "all" || (filter === "mine" ? g.is_member : g.group_type === filter));
+  const list = (groups || []).map((g) => {
+    const mems = Array.isArray(g.member_ids) ? g.member_ids : null;
+    const isMyDept = Boolean(me?.department && String(g.name || "").trim().toLowerCase() === String(me.department).trim().toLowerCase());
+    const computedMember = mems
+      ? mems.includes(me?.user_id)
+      : (me?.role === "super_admin" || isMyDept || Boolean(g.is_member && !String(g.id || "").startsWith("group_official_")));
+    return { ...g, is_member: computedMember };
+  }).filter((g) => filter === "all" || (filter === "mine" ? g.is_member : g.group_type === filter));
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10 animate-crossfade" data-testid="groups-page">
       <PageHeader icon={Hash} title="Groups & Channels" subtitle="Public, private, department and project groups in your workspace." actions={<AccentButton onClick={() => setOpen(true)} data-testid="create-group-btn"><Plus size={16} />New group</AccentButton>} />

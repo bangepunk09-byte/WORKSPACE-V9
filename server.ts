@@ -548,13 +548,24 @@ async function startServer() {
   officialGroups.forEach((og) => {
     const groupId = `group_official_${og.name.toLowerCase()}`;
     let g = db.groups.find((x: any) => x.id === groupId || (x.name === og.name && x.is_verified));
-    
+    const deptMems = (db.users || [])
+      .filter((u: any) => {
+        if (!u || u.is_bot || u.role === "assistant" || u.user_id === CIRCLE_BOT_ID) return false;
+        if (u.role === "super_admin") return true;
+        return String(u.department || "").trim().toLowerCase() === og.name.toLowerCase();
+      })
+      .map((u: any) => u.user_id);
+
     if (g) {
       g.id = groupId;
       g.name = og.name;
+      g.group_type = "department";
       g.is_verified = true;
       g.type = "group";
-      g.member_ids = (Array.isArray(g.member_ids) ? g.member_ids : humanUserIds).filter((id: string) => id !== CIRCLE_BOT_ID);
+      const manualIds = Array.isArray(g.manually_joined_ids) ? g.manually_joined_ids : [];
+      g.member_ids = Array.from(new Set([...deptMems, ...manualIds])).filter((id: string) => id !== CIRCLE_BOT_ID);
+      g.members = g.member_ids;
+      g.member_count = g.member_ids.length;
     } else {
       g = {
         id: groupId,
@@ -563,7 +574,9 @@ async function startServer() {
         group_type: "department",
         is_verified: true,
         created_at: new Date().toISOString(),
-        member_ids: [...humanUserIds],
+        member_ids: [...deptMems],
+        members: [...deptMems],
+        member_count: deptMems.length,
         type: "group"
       };
       db.groups.push(g);
@@ -571,18 +584,17 @@ async function startServer() {
 
     const convIdx = db.conversations.findIndex((c: any) => c.id === g.id || (c.name === og.name && c.is_verified));
     if (convIdx === -1) {
-      db.conversations.push(g);
+      db.conversations.push({ ...g });
     } else {
       const c = db.conversations[convIdx];
       c.id = g.id;
       c.name = g.name;
+      c.group_type = "department";
       c.is_verified = true;
       c.type = "group";
-      const baseMems = Array.isArray(c.member_ids) ? c.member_ids : g.member_ids;
-      c.member_ids = baseMems.filter((id: string) => id !== CIRCLE_BOT_ID);
-      if (Array.isArray(c.members)) {
-        c.members = c.members.filter((id: string) => id !== CIRCLE_BOT_ID);
-      }
+      c.member_ids = [...g.member_ids];
+      c.members = [...g.member_ids];
+      c.member_count = g.member_ids.length;
     }
   });
 
@@ -676,68 +688,115 @@ async function startServer() {
 
   const DEFAULT_ALIGNED_DIVISIONS = [
     "Management",
-    "Engineering",
-    "Product",
-    "Design",
     "Marketing",
     "Sales",
     "IT",
     "Finance",
     "Legal",
-    "HRGA",
-    "Operations"
+    "HRGA"
   ];
 
   const DEFAULT_ALIGNED_ORG_UNITS = [
     { id: "unit_mgmt", name: "Management", division: "Management", description: "Board of Directors & Executive Leadership", level: "Executive", color: "#FF5364", head_id: "user_superadmin_saeful", parent_id: null, order: 0 },
-    { id: "unit_eng", name: "Engineering", division: "Engineering", description: "Software Engineering, Architecture & DevOps", level: "Division", color: "#3B82F6", head_id: "user_admin1", parent_id: "unit_mgmt", order: 1 },
-    { id: "unit_prod", name: "Product", division: "Product", description: "Product Management, Strategy & Research", level: "Division", color: "#8B5CF6", head_id: "user_superadmin_saeful", parent_id: "unit_mgmt", order: 2 },
-    { id: "unit_design", name: "Design", division: "Design", description: "UI/UX Design, Brand & Creative Assets", level: "Division", color: "#EC4899", head_id: null, parent_id: "unit_mgmt", order: 3 },
-    { id: "unit_mkt", name: "Marketing", division: "Marketing", description: "Brand Marketing, Campaign & Social Media Growth", level: "Division", color: "#10B981", head_id: null, parent_id: "unit_mgmt", order: 4 },
-    { id: "unit_sales", name: "Sales", division: "Sales", description: "Enterprise Sales, Partnership & Business Development", level: "Division", color: "#F59E0B", head_id: null, parent_id: "unit_mgmt", order: 5 },
-    { id: "unit_it", name: "IT", division: "IT", description: "IT Infrastructure, Security & Internal Support", level: "Division", color: "#06B6D4", head_id: "user_admin1", parent_id: "unit_mgmt", order: 6 },
-    { id: "unit_fin", name: "Finance", division: "Finance", description: "Financial Planning, Accounting & Treasury", level: "Division", color: "#14B8A6", head_id: null, parent_id: "unit_mgmt", order: 7 },
-    { id: "unit_legal", name: "Legal", division: "Legal", description: "Corporate Legal, Compliance & Contracts", level: "Division", color: "#6366F1", head_id: null, parent_id: "unit_mgmt", order: 8 },
-    { id: "unit_hrga", name: "HRGA", division: "HRGA", description: "Human Resources, Talent & General Affairs", level: "Division", color: "#F97316", head_id: null, parent_id: "unit_mgmt", order: 9 },
-    { id: "unit_ops", name: "Operations", division: "Operations", description: "Business Operations & Quality Assurance", level: "Division", color: "#64748B", head_id: "user_admin1", parent_id: "unit_mgmt", order: 10 }
+    { id: "unit_mkt", name: "Marketing", division: "Marketing", description: "Brand Marketing, Campaign & Social Media Growth", level: "Division", color: "#10B981", head_id: null, parent_id: "unit_mgmt", order: 1 },
+    { id: "unit_sales", name: "Sales", division: "Sales", description: "Enterprise Sales, Partnership & Business Development", level: "Division", color: "#F59E0B", head_id: null, parent_id: "unit_mgmt", order: 2 },
+    { id: "unit_it", name: "IT", division: "IT", description: "IT Infrastructure, Security & Internal Support", level: "Division", color: "#06B6D4", head_id: "user_admin1", parent_id: "unit_mgmt", order: 3 },
+    { id: "unit_fin", name: "Finance", division: "Finance", description: "Financial Planning, Accounting & Treasury", level: "Division", color: "#14B8A6", head_id: null, parent_id: "unit_mgmt", order: 4 },
+    { id: "unit_legal", name: "Legal", division: "Legal", description: "Corporate Legal, Compliance & Contracts", level: "Division", color: "#6366F1", head_id: null, parent_id: "unit_mgmt", order: 5 },
+    { id: "unit_hrga", name: "HRGA", division: "HRGA", description: "Human Resources, Talent & General Affairs", level: "Division", color: "#F97316", head_id: null, parent_id: "unit_mgmt", order: 6 }
   ];
 
   if (!Array.isArray(db.workspace.org_levels) || db.workspace.org_levels.length === 0) {
     db.workspace.org_levels = ["Executive", "Division", "Department", "Team"];
   }
 
-  // Align workspace divisions and org_units with the current official divisions
-  if (!db.org_aligned_v2 || !Array.isArray(db.org_units) || db.org_units.length === 0) {
-    db.workspace.divisions = [...DEFAULT_ALIGNED_DIVISIONS];
-    db.org_units = JSON.parse(JSON.stringify(DEFAULT_ALIGNED_ORG_UNITS));
-
-    (db.users || []).forEach((u: any) => {
-      if (u.is_bot || u.role === "assistant" || u.user_id === CIRCLE_BOT_ID) {
-        u.org_unit_id = null;
-        return;
-      }
-      if (u.user_id === "user_superadmin_saeful") {
-        u.department = "Management";
-        u.org_unit_id = "unit_mgmt";
-        u.manager_id = null;
-      } else if (u.user_id === "user_admin1") {
-        u.department = "Management";
-        u.org_unit_id = "unit_mgmt";
-        u.manager_id = "user_superadmin_saeful";
-      } else {
-        const dept = u.department || "Management";
-        const matchedUnit = db.org_units.find(
-          (unit: any) => (unit.division || unit.name || "").toLowerCase() === dept.toLowerCase()
-        );
-        u.org_unit_id = matchedUnit ? matchedUnit.id : "unit_mgmt";
-      }
-    });
-
-    db.org_aligned_v2 = true;
-    saveDbToFile();
+  function getDepartmentGroupMemberIds(divName: string, existingGroup?: any): string[] {
+    const cleanDiv = String(divName || "").trim().toLowerCase();
+    const manualIds = Array.isArray(existingGroup?.manually_joined_ids) ? existingGroup.manually_joined_ids : [];
+    const matchedUserIds = (db.users || [])
+      .filter((u: any) => {
+        if (!u || u.is_bot || u.role === "assistant" || u.user_id === CIRCLE_BOT_ID) return false;
+        if (u.role === "super_admin") return true;
+        return String(u.department || "").trim().toLowerCase() === cleanDiv;
+      })
+      .map((u: any) => u.user_id);
+    return Array.from(new Set([...matchedUserIds, ...manualIds])).filter((id: string) => Boolean(id) && id !== CIRCLE_BOT_ID);
   }
 
-  // Helper to sync user department <-> org_unit_id
+  // Helper to sync user department <-> org_unit_id AND official division group membership
+  function syncUserDivisionAndGroupMembership(user: any) {
+    if (!user || user.is_bot || user.role === "assistant" || user.user_id === CIRCLE_BOT_ID) return;
+    const uid = user.user_id;
+    const userDept = String(user.department || "").trim();
+    const userDeptLower = userDept.toLowerCase();
+
+    // 1. Ensure user's org_unit_id matches their selected division
+    if (userDept) {
+      const matchedUnit = (db.org_units || []).find(
+        (u: any) =>
+          String(u.division || "").trim().toLowerCase() === userDeptLower ||
+          String(u.name || "").trim().toLowerCase() === userDeptLower
+      );
+      if (matchedUnit) {
+        user.org_unit_id = matchedUnit.id;
+        user.department = matchedUnit.division || matchedUnit.name;
+      }
+    } else if (user.org_unit_id) {
+      const matchedUnit = (db.org_units || []).find((u: any) => u.id === user.org_unit_id);
+      if (matchedUnit) {
+        user.department = matchedUnit.division || matchedUnit.name;
+      }
+    }
+
+    const effectiveDeptLower = String(user.department || "").trim().toLowerCase();
+    const isSuperAdmin = user.role === "super_admin";
+
+    // 2. Sync official department groups so non-super-admin users ONLY belong to their chosen division's group (unless manually joined)
+    const syncGroupList = (list: any[]) => {
+      (list || []).forEach((g: any) => {
+        if (!g || g.id === "conv_1") return;
+        const isDeptGroup =
+          g.group_type === "department" ||
+          String(g.id || "").startsWith("group_official_") ||
+          Boolean(g.is_verified && g.type === "group");
+        if (!isDeptGroup) return;
+
+        const gNameLower = String(g.name || "").trim().toLowerCase();
+        const gSlug = `group_official_${effectiveDeptLower.replace(/[^a-z0-9]+/g, "_")}`;
+        const isMatchingDept = Boolean(effectiveDeptLower) && (gNameLower === effectiveDeptLower || g.id === gSlug);
+        const manualIds = Array.isArray(g.manually_joined_ids) ? g.manually_joined_ids : [];
+        const shouldBeMember = isSuperAdmin || isMatchingDept || manualIds.includes(uid);
+
+        const rawMems = Array.isArray(g.member_ids) ? g.member_ids : (Array.isArray(g.members) ? g.members : []);
+        let nextMems = rawMems.filter((id: string) => Boolean(id) && id !== CIRCLE_BOT_ID);
+        if (shouldBeMember) {
+          if (!nextMems.includes(uid)) nextMems.push(uid);
+        } else {
+          nextMems = nextMems.filter((id: string) => id !== uid);
+        }
+        nextMems = Array.from(new Set(nextMems));
+        g.member_ids = nextMems;
+        g.members = nextMems;
+        g.member_count = nextMems.length;
+      });
+    };
+
+    syncGroupList(db.groups);
+    syncGroupList(db.conversations);
+
+    // 3. Also add user to matching department boards
+    (db.boards || []).forEach((b: any) => {
+      if (!b || !b.department) return;
+      const bDeptLower = String(b.department || "").trim().toLowerCase();
+      if (bDeptLower === effectiveDeptLower) {
+        const mems = Array.isArray(b.member_ids) ? b.member_ids : [];
+        if (!mems.includes(uid)) {
+          b.member_ids = [...mems, uid];
+        }
+      }
+    });
+  }
+
   function syncUserOrgAndDepartment(user: any, body: any = {}) {
     if (!user || user.is_bot || user.role === "assistant" || user.user_id === CIRCLE_BOT_ID) return;
     if ("org_unit_id" in body) {
@@ -757,38 +816,184 @@ async function startServer() {
         user.org_unit_id = matched.id;
       }
     }
+    syncUserDivisionAndGroupMembership(user);
   }
 
-  // Helper to sync db.workspace.divisions <-> db.org_units
-  function syncDivisionsToOrgUnits(divisionsList: string[]) {
+  // Helper to sync db.workspace.divisions <-> db.org_units <-> db.groups & db.conversations
+  function syncDivisionsToOrgUnits(divisionsList: string[], options: { removeMissing?: boolean } = {}) {
     if (!Array.isArray(divisionsList)) return;
+    const removeMissing = options.removeMissing !== false;
+    const cleaned = Array.from(
+      new Set(divisionsList.map((d) => String(d || "").trim()).filter(Boolean))
+    );
+    db.workspace.divisions = cleaned;
     db.org_units = Array.isArray(db.org_units) ? db.org_units : [];
-    const rootUnit = db.org_units.find((u: any) => !u.parent_id) || db.org_units[0] || null;
-    const palette = ["#FF5364", "#3B82F6", "#8B5CF6", "#EC4899", "#10B981", "#F59E0B", "#06B6D4", "#14B8A6", "#6366F1", "#F97316", "#64748B"];
 
-    divisionsList.forEach((divName, idx) => {
-      const clean = String(divName || "").trim();
-      if (!clean) return;
+    const validLowerSet = new Set(cleaned.map((d) => d.toLowerCase()));
+
+    if (removeMissing) {
+      db.org_units = db.org_units.filter((u: any) => {
+        const divKey = String(u.division || u.name || "").trim().toLowerCase();
+        return validLowerSet.has(divKey);
+      });
+    }
+
+    const rootUnit =
+      db.org_units.find((u: any) => !u.parent_id || u.id === "unit_mgmt" || (u.name || "").toLowerCase() === "management") ||
+      db.org_units[0] ||
+      null;
+    const palette = ["#FF5364", "#10B981", "#F59E0B", "#06B6D4", "#14B8A6", "#6366F1", "#F97316", "#3B82F6", "#8B5CF6", "#EC4899", "#64748B"];
+
+    cleaned.forEach((clean, idx) => {
       const existing = db.org_units.find(
         (u: any) =>
           (u.division || "").toLowerCase() === clean.toLowerCase() ||
           (u.name || "").toLowerCase() === clean.toLowerCase()
       );
-      if (!existing) {
+      if (existing) {
+        existing.name = clean;
+        existing.division = clean;
+        existing.order = idx;
+      } else {
         const slug = clean.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+        const isMgmt = clean.toLowerCase() === "management";
         db.org_units.push({
-          id: `unit_${slug}_${Date.now().toString(36).slice(-3)}`,
+          id: isMgmt ? "unit_mgmt" : `unit_${slug}`,
           name: clean,
           division: clean,
-          description: `Divisi ${clean}`,
-          level: rootUnit ? "Division" : "Executive",
+          description: isMgmt ? "Board of Directors & Executive Leadership" : `Divisi ${clean}`,
+          level: isMgmt || !rootUnit ? "Executive" : "Division",
           color: palette[idx % palette.length],
           head_id: null,
-          parent_id: rootUnit ? rootUnit.id : null,
-          order: db.org_units.length
+          parent_id: isMgmt || !rootUnit ? null : rootUnit.id,
+          order: idx
         });
       }
     });
+
+    // Reparent any orphaned units
+    const currentUnitIds = new Set(db.org_units.map((u: any) => u.id));
+    const currentRoot = db.org_units.find((u: any) => !u.parent_id) || db.org_units[0] || null;
+    db.org_units.forEach((u: any) => {
+      if (u.parent_id && !currentUnitIds.has(u.parent_id)) {
+        u.parent_id = currentRoot && currentRoot.id !== u.id ? currentRoot.id : null;
+      }
+    });
+    db.org_units.sort((a: any, b: any) => (a.order ?? 999) - (b.order ?? 999));
+
+    const deptDivisions = cleaned.filter((d) => d.toLowerCase() !== "management");
+    const validGroupSlugs = new Set(
+      cleaned.map((d) => `group_official_${d.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`)
+    );
+
+    if (removeMissing) {
+      const isStaleDeptGroup = (g: any) => {
+        if (!g || g.id === "conv_1") return false;
+        const isOfficialOrDept =
+          g.group_type === "department" ||
+          String(g.id || "").startsWith("group_official_") ||
+          Boolean(g.is_verified && g.type === "group");
+        if (!isOfficialOrDept) return false;
+        const gNameLower = String(g.name || "").trim().toLowerCase();
+        return !validLowerSet.has(gNameLower) && !validGroupSlugs.has(String(g.id));
+      };
+
+      const removedGroupIds = (db.groups || []).filter(isStaleDeptGroup).map((g: any) => g.id);
+      db.groups = (db.groups || []).filter((g: any) => !isStaleDeptGroup(g));
+      db.conversations = (db.conversations || []).filter((c: any) => !isStaleDeptGroup(c));
+      removedGroupIds.forEach((gid: string) => {
+        try { broadcast({ type: "group:deleted", id: gid }); } catch {}
+      });
+    }
+
+    deptDivisions.forEach((divName) => {
+      const slug = divName.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+      const groupId = `group_official_${slug}`;
+      let g = (db.groups || []).find(
+        (x: any) => x.id === groupId || (String(x.name || "").toLowerCase() === divName.toLowerCase() && (x.is_verified || x.group_type === "department"))
+      );
+      const deptMems = getDepartmentGroupMemberIds(divName, g);
+      if (g) {
+        g.id = groupId;
+        g.name = divName;
+        g.group_type = "department";
+        g.is_verified = true;
+        g.type = "group";
+        g.member_ids = deptMems;
+        g.members = deptMems;
+        g.member_count = deptMems.length;
+      } else {
+        g = {
+          id: groupId,
+          name: divName,
+          description: `Official channel for ${divName} department discussions`,
+          group_type: "department",
+          is_verified: true,
+          created_at: new Date().toISOString(),
+          member_ids: deptMems,
+          members: deptMems,
+          member_count: deptMems.length,
+          type: "group"
+        };
+        db.groups.push(g);
+      }
+
+      const convIdx = (db.conversations || []).findIndex(
+        (c: any) => c.id === g.id || (String(c.name || "").toLowerCase() === divName.toLowerCase() && (c.is_verified || c.group_type === "department"))
+      );
+      if (convIdx === -1) {
+        db.conversations.push({ ...g });
+      } else {
+        const c = db.conversations[convIdx];
+        c.id = g.id;
+        c.name = g.name;
+        c.group_type = "department";
+        c.is_verified = true;
+        c.type = "group";
+        c.member_ids = g.member_ids;
+        c.members = g.member_ids;
+        c.member_count = g.member_ids.length;
+      }
+    });
+  }
+
+  // Align workspace divisions, org_units, and official groups with the active divisions
+  if (!db.org_aligned_v3 || !Array.isArray(db.org_units) || db.org_units.length === 0) {
+    db.workspace.divisions = [...DEFAULT_ALIGNED_DIVISIONS];
+    db.org_units = JSON.parse(JSON.stringify(DEFAULT_ALIGNED_ORG_UNITS));
+
+    (db.users || []).forEach((u: any) => {
+      if (u.is_bot || u.role === "assistant" || u.user_id === CIRCLE_BOT_ID) {
+        u.org_unit_id = null;
+        return;
+      }
+      if (u.user_id === "user_superadmin_saeful") {
+        u.department = "Management";
+        u.org_unit_id = "unit_mgmt";
+        u.manager_id = null;
+      } else if (u.user_id === "user_admin1") {
+        u.department = "Management";
+        u.org_unit_id = "unit_mgmt";
+        u.manager_id = "user_superadmin_saeful";
+      } else {
+        const dept = u.department || "Marketing";
+        const matchedUnit = db.org_units.find(
+          (unit: any) => (unit.division || unit.name || "").toLowerCase() === dept.toLowerCase()
+        );
+        u.org_unit_id = matchedUnit ? matchedUnit.id : "unit_mgmt";
+        if (matchedUnit) u.department = matchedUnit.division || matchedUnit.name;
+      }
+    });
+
+    syncDivisionsToOrgUnits(db.workspace.divisions, { removeMissing: true });
+    (db.users || []).forEach((u: any) => syncUserDivisionAndGroupMembership(u));
+
+    db.org_aligned_v2 = true;
+    db.org_aligned_v3 = true;
+    saveDbToFile();
+  } else {
+    syncDivisionsToOrgUnits(db.workspace.divisions || DEFAULT_ALIGNED_DIVISIONS, { removeMissing: true });
+    (db.users || []).forEach((u: any) => syncUserDivisionAndGroupMembership(u));
   }
 
   if (!Array.isArray(db.drive_shortcuts) || db.drive_shortcuts.length === 0) {
@@ -913,6 +1118,18 @@ async function startServer() {
 
   let currentSessionUser: any = (db.session_user_id && db.users.find((u: any) => u.user_id === db.session_user_id)) || null;
 
+  function setUserOnlineStatus(userId: string | undefined | null, isOnline: boolean) {
+    if (!userId || userId === CIRCLE_BOT_ID) return;
+    const u = (db.users || []).find((x: any) => x.user_id === userId);
+    if (!u) return;
+    const prev = Boolean(u.online);
+    u.online = isOnline;
+    u.last_seen_at = new Date().toISOString();
+    if (prev !== isOnline) {
+      broadcast({ type: "presence", data: { user_id: userId, online: isOnline } });
+    }
+  }
+
   function getReqUser(req: any): any {
     const headerUid = req.headers?.["x-user-id"] as string | undefined;
     if (headerUid) {
@@ -929,6 +1146,9 @@ async function startServer() {
       const found = (db.users || []).find((u: any) => u.user_id === headerUid);
       if (found) {
         currentSessionUser = found;
+        if (!found.online && req.path !== "/api/auth/logout" && req.path !== "/api/presence/offline") {
+          setUserOnlineStatus(found.user_id, true);
+        }
       }
     }
     next();
@@ -957,6 +1177,8 @@ async function startServer() {
       return res.status(401).json({ error: "Not authenticated" });
     }
     const latestUser = db.users.find((u: any) => u.user_id === reqUser.user_id) || reqUser;
+    setUserOnlineStatus(latestUser.user_id, true);
+    syncUserDivisionAndGroupMembership(latestUser);
     res.json({
       user: latestUser,
       workspace: db.workspace,
@@ -1000,6 +1222,8 @@ async function startServer() {
       });
     }
 
+    setUserOnlineStatus(user.user_id, true);
+    syncUserDivisionAndGroupMembership(user);
     currentSessionUser = user;
     db.session_user_id = user.user_id;
     saveDbToFile();
@@ -1035,6 +1259,7 @@ async function startServer() {
 
     const reqId = `req_${Date.now()}`;
     const newUserId = existingUser ? existingUser.user_id : `user_${Date.now()}`;
+    const selectedDept = String(department || "Marketing").trim();
 
     let newUserObj: any = null;
     const defaultAvatar = avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}`;
@@ -1046,7 +1271,7 @@ async function startServer() {
         name: name.trim(),
         role: "employee",
         job_title: job_title || "Staff Member",
-        department: department || "General",
+        department: selectedDept,
         status: "pending",
         online: false,
         is_demo: false,
@@ -1057,7 +1282,7 @@ async function startServer() {
     } else {
       existingUser.password = password;
       existingUser.name = name.trim();
-      if (department) existingUser.department = department;
+      if (department) existingUser.department = selectedDept;
       if (job_title) existingUser.job_title = job_title;
       existingUser.avatar = defaultAvatar;
       existingUser.picture = defaultAvatar;
@@ -1065,11 +1290,13 @@ async function startServer() {
       newUserObj = existingUser;
     }
 
+    syncUserDivisionAndGroupMembership(newUserObj);
+
     const accessReq = {
       id: reqId,
       name: name.trim(),
       email: cleanEmail,
-      department: department || "General",
+      department: newUserObj.department || selectedDept,
       job_title: job_title || "Staff Member",
       note: note || "Pendaftaran akun baru via Email & Password",
       status: "pending",
@@ -1116,7 +1343,7 @@ async function startServer() {
         conversation_id: conv.id,
         sender_id: CIRCLE_BOT_ID,
         user_id: CIRCLE_BOT_ID,
-        text: `Halo ${admin.name.split(' ')[0]}! Ada pendaftaran akun baru (${cleanEmail}) untuk divisi ${department || 'General'}. Silakan tinjau card approval di bawah ini:`,
+        text: `Halo ${admin.name.split(' ')[0]}! Ada pendaftaran akun baru (${cleanEmail}) untuk divisi ${newUserObj.department || selectedDept}. Silakan tinjau card approval di bawah ini:`,
         type: "access_request_card",
         access_request: accessReq,
         created_at: new Date().toISOString()
@@ -1127,7 +1354,7 @@ async function startServer() {
       createNotification({
         user_id: admin.user_id,
         title: "Pendaftaran Akun Baru",
-        body: `${name} (${cleanEmail}) mendaftar akun baru dan menunggu persetujuan Super Admin`,
+        body: `${name} (${cleanEmail}) mendaftar akun baru di divisi ${newUserObj.department || selectedDept} dan menunggu persetujuan Super Admin`,
         type: "access_request",
         category: "system",
         access_request: accessReq
@@ -1137,6 +1364,7 @@ async function startServer() {
     saveDbToFile();
     broadcast({ type: "access_requests:changed" });
     broadcast({ type: "conversations:changed" });
+    broadcast({ type: "groups:changed" });
 
     res.json({
       success: true,
@@ -1146,10 +1374,11 @@ async function startServer() {
   });
 
   app.post("/api/auth/google", (req, res) => {
-    const { email, name, picture, department, job_title, note } = req.body || {};
+    const { email, name, picture, department, job_title, note, mode } = req.body || {};
     if (!email) return res.status(400).json({ detail: "Email wajib diisi" });
 
     const cleanEmail = String(email).toLowerCase().trim();
+    const isSignupIntent = mode === "signup";
     let user = db.users.find((u: any) => u.email?.toLowerCase() === cleanEmail);
 
     // Super admin default email whitelist
@@ -1157,6 +1386,11 @@ async function startServer() {
       cleanEmail === "be.creativestudio21@gmail.com" ||
       cleanEmail === "admin@asliri.local" ||
       cleanEmail === "saeful@asliri.id";
+
+    const displayName = (name || cleanEmail.split("@")[0] || "Google User").trim();
+    const dept = String(department || "Marketing").trim();
+    const title = job_title || "Staff Member";
+    const avatarUrl = picture || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${encodeURIComponent(displayName)}`;
 
     if (!user) {
       if (isSuperAdminEmail) {
@@ -1175,17 +1409,34 @@ async function startServer() {
           picture: picture || "https://api.dicebear.com/7.x/pixel-art/svg?seed=SuperAdmin"
         };
         db.users.push(user);
+        syncUserDivisionAndGroupMembership(user);
         saveDbToFile();
+      } else if (!isSignupIntent || db.workspace?.require_approval === false) {
+        // Direct Google Login: create active account immediately so user can log in with Google seamlessly
+        user = {
+          user_id: `user_google_${Date.now()}`,
+          email: cleanEmail,
+          name: displayName,
+          role: "employee",
+          job_title: title,
+          department: dept,
+          status: "active",
+          online: true,
+          is_demo: false,
+          avatar: avatarUrl,
+          picture: avatarUrl
+        };
+        db.users.push(user);
+        syncUserDivisionAndGroupMembership(user);
+        saveDbToFile();
+        broadcast({ type: "users:changed" });
+        broadcast({ type: "groups:changed" });
       } else {
-        // Automatically register new Google user as pending & send Approval Card to Super Admin
-        const displayName = (name || cleanEmail.split("@")[0] || "Google User").trim();
-        const dept = department || "General";
-        const title = job_title || "Staff Member";
-        const avatarUrl = picture || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${encodeURIComponent(displayName)}`;
+        // Explicit Sign-Up mode with require_approval enabled: register as pending & send Approval Card
         const newUserId = `user_google_${Date.now()}`;
         const reqId = `req_${Date.now()}`;
 
-        const newUserObj = {
+        const newUserObj: any = {
           user_id: newUserId,
           email: cleanEmail,
           name: displayName,
@@ -1199,14 +1450,15 @@ async function startServer() {
           picture: avatarUrl
         };
         db.users.push(newUserObj);
+        syncUserDivisionAndGroupMembership(newUserObj);
 
         const accessReq = {
           id: reqId,
           name: displayName,
           email: cleanEmail,
-          department: dept,
+          department: newUserObj.department || dept,
           job_title: title,
-          note: note || "Pendaftaran akun baru via Google Sign-Up",
+          note: note || "Pendaftaran akun baru via Google",
           status: "pending",
           created_at: new Date().toISOString()
         };
@@ -1249,7 +1501,7 @@ async function startServer() {
             conversation_id: conv.id,
             sender_id: CIRCLE_BOT_ID,
             user_id: CIRCLE_BOT_ID,
-            text: `Halo ${admin.name.split(" ")[0]}! Ada pendaftaran akun Google baru (${cleanEmail}) untuk divisi ${dept}. Silakan tinjau card approval di bawah ini:`,
+            text: `Halo ${admin.name.split(" ")[0]}! Ada pendaftaran akun Google baru (${cleanEmail}) untuk divisi ${newUserObj.department || dept}. Silakan tinjau card approval di bawah ini:`,
             type: "access_request_card",
             access_request: accessReq,
             created_at: new Date().toISOString()
@@ -1260,7 +1512,7 @@ async function startServer() {
           createNotification({
             user_id: admin.user_id,
             title: "Pendaftaran Akun Google Baru",
-            body: `${displayName} (${cleanEmail}) mendaftar via Google dan menunggu persetujuan Super Admin`,
+            body: `${displayName} (${cleanEmail}) mendaftar via Google di divisi ${newUserObj.department || dept} dan menunggu persetujuan Super Admin`,
             type: "access_request",
             category: "system",
             access_request: accessReq
@@ -1270,6 +1522,7 @@ async function startServer() {
         saveDbToFile();
         broadcast({ type: "access_requests:changed" });
         broadcast({ type: "conversations:changed" });
+        broadcast({ type: "groups:changed" });
 
         return res.json({
           status: "registered_pending",
@@ -1279,12 +1532,25 @@ async function startServer() {
         });
       }
     } else if (user.status === "pending") {
-      return res.status(403).json({
-        status: "pending",
-        detail: "Permintaan akses untuk akun Google Anda sedang ditinjau oleh Super Admin / Manager.",
-        email: cleanEmail,
-        name: user.name
-      });
+      if (!isSignupIntent) {
+        // Activate pending Google user when logging in via Google
+        user.status = "active";
+        if (name && (!user.name || user.name === cleanEmail.split("@")[0])) user.name = displayName;
+        // Also mark any pending access request for this email as approved
+        (db.access_requests || []).forEach((r: any) => {
+          if (r.email?.toLowerCase() === cleanEmail && r.status === "pending") {
+            r.status = "approved";
+            r.approved_by = "Google Sign-In";
+          }
+        });
+      } else {
+        return res.status(403).json({
+          status: "pending",
+          detail: "Permintaan akses untuk akun Google Anda sedang ditinjau oleh Super Admin / Manager.",
+          email: cleanEmail,
+          name: user.name
+        });
+      }
     } else if (user.status === "inactive" || user.status === "rejected") {
       return res.status(403).json({
         status: "inactive",
@@ -1297,6 +1563,8 @@ async function startServer() {
       user.picture = picture;
     }
 
+    setUserOnlineStatus(user.user_id, true);
+    syncUserDivisionAndGroupMembership(user);
     currentSessionUser = user;
     db.session_user_id = user.user_id;
     saveDbToFile();
@@ -1327,11 +1595,12 @@ async function startServer() {
     }
 
     const reqId = `req_${Date.now()}`;
+    const selectedDept = String(department || "Marketing").trim();
     const accessReq = {
       id: reqId,
       name: name.trim(),
       email: cleanEmail,
-      department: department || "General",
+      department: selectedDept,
       job_title: job_title || "Employee",
       note: note || "-",
       status: "pending",
@@ -1340,22 +1609,26 @@ async function startServer() {
     db.access_requests.unshift(accessReq);
 
     // Also register as pending user if not present
-    if (!existingUser) {
-      db.users.push({
+    let targetUser = existingUser;
+    if (!targetUser) {
+      targetUser = {
         user_id: `user_${Date.now()}`,
         email: cleanEmail,
         name: name.trim(),
         role: "employee",
         job_title: job_title || "Employee",
-        department: department || "General",
+        department: selectedDept,
         status: "pending",
         online: false,
         is_demo: false,
         avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}`
-      });
+      };
+      db.users.push(targetUser);
     } else {
-      existingUser.status = "pending";
+      targetUser.status = "pending";
+      if (department) targetUser.department = selectedDept;
     }
+    syncUserDivisionAndGroupMembership(targetUser);
 
     // "Circle" Assistant sends approval card message to Super Admins & Managers
     const approvers = db.users.filter((u: any) => 
@@ -1397,7 +1670,7 @@ async function startServer() {
         conversation_id: conv.id,
         sender_id: CIRCLE_BOT_ID,
         user_id: CIRCLE_BOT_ID,
-        text: `Halo ${admin.name.split(' ')[0]}! Ada permohonan akses login baru ke workspace dari ${name} (${cleanEmail}) untuk divisi ${department || 'General'}. Silakan tinjau card approval di bawah ini:`,
+        text: `Halo ${admin.name.split(' ')[0]}! Ada permohonan akses login baru ke workspace dari ${name} (${cleanEmail}) untuk divisi ${targetUser.department || selectedDept}. Silakan tinjau card approval di bawah ini:`,
         type: "access_request_card",
         access_request: accessReq,
         created_at: new Date().toISOString()
@@ -1408,7 +1681,7 @@ async function startServer() {
       createNotification({
         user_id: admin.user_id,
         title: "Permintaan Akses Masuk Baru",
-        body: `${name} (${department || 'General'}) mengajukan permohonan akses masuk`,
+        body: `${name} (${targetUser.department || selectedDept}) mengajukan permohonan akses masuk`,
         type: "access_request",
         category: "system",
         access_request: accessReq
@@ -1418,6 +1691,7 @@ async function startServer() {
     saveDbToFile();
     broadcast({ type: "access_requests:changed" });
     broadcast({ type: "conversations:changed" });
+    broadcast({ type: "groups:changed" });
 
     res.json({
       success: true,
@@ -1456,14 +1730,16 @@ async function startServer() {
         name: accessReq.name,
         role: role || "employee",
         job_title: accessReq.job_title || "Employee",
-        department: department || accessReq.department || "General",
+        department: department || accessReq.department || "Marketing",
         status: "active",
-        online: true,
+        online: false,
         is_demo: false,
         avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(accessReq.name)}`
       };
       db.users.push(user);
     }
+
+    syncUserDivisionAndGroupMembership(user);
 
     // Update all card messages in db.messages and broadcast update
     db.messages.forEach((m: any) => {
@@ -1479,12 +1755,15 @@ async function startServer() {
     saveDbToFile();
     broadcast({ type: "access_requests:changed" });
     broadcast({ type: "users:changed" });
+    broadcast({ type: "org:changed", units: db.org_units });
+    broadcast({ type: "groups:changed" });
+    broadcast({ type: "conversations:changed" });
 
     // Notify user of approval
     createNotification({
       user_id: user.user_id,
       title: "Selamat! Akses Kamu Telah Disetujui",
-      body: `Permohonan akses kamu ke CIRCLE Workspace telah disetujui oleh Super Admin.`,
+      body: `Permohonan akses kamu ke CIRCLE Workspace (${user.department}) telah disetujui oleh Super Admin.`,
       type: "access_approved",
       category: "system"
     });
@@ -1533,6 +1812,8 @@ async function startServer() {
     const { user_id } = req.body;
     const user = db.users.find((u: any) => u.user_id === user_id);
     if (!user) return res.status(404).json({ detail: "User not found" });
+    setUserOnlineStatus(user.user_id, true);
+    syncUserDivisionAndGroupMembership(user);
     currentSessionUser = user;
     res.json({
       user,
@@ -1542,8 +1823,33 @@ async function startServer() {
   });
 
   app.post("/api/auth/logout", (req, res) => {
+    const reqUser = getReqUser(req);
+    if (reqUser?.user_id) {
+      setUserOnlineStatus(reqUser.user_id, false);
+    }
     currentSessionUser = null;
+    saveDbToFile();
     res.json({ success: true });
+  });
+
+  app.post("/api/presence/online", (req, res) => {
+    const reqUser = getReqUser(req);
+    const uid = req.body?.user_id || reqUser?.user_id;
+    if (uid) {
+      setUserOnlineStatus(uid, true);
+      saveDbToFile();
+    }
+    res.json({ success: true, user_id: uid, online: true });
+  });
+
+  app.post("/api/presence/offline", (req, res) => {
+    const reqUser = getReqUser(req);
+    const uid = req.body?.user_id || reqUser?.user_id;
+    if (uid) {
+      setUserOnlineStatus(uid, false);
+      saveDbToFile();
+    }
+    res.json({ success: true, user_id: uid, online: false });
   });
 
   app.get("/api/users", (req, res) => {
@@ -1572,6 +1878,8 @@ async function startServer() {
     saveDbToFile();
     broadcast({ type: "users:changed", user });
     broadcast({ type: "org:changed", units: db.org_units });
+    broadcast({ type: "groups:changed" });
+    broadcast({ type: "conversations:changed" });
     res.json(user);
   });
 
@@ -1586,6 +1894,8 @@ async function startServer() {
     saveDbToFile();
     broadcast({ type: "users:changed", user });
     broadcast({ type: "org:changed", units: db.org_units });
+    broadcast({ type: "groups:changed" });
+    broadcast({ type: "conversations:changed" });
     res.json(user);
   });
 
@@ -3039,6 +3349,7 @@ async function startServer() {
       if (!db.workspace.divisions.some((d: string) => d.toLowerCase() === divisionName.toLowerCase())) {
         db.workspace.divisions.push(divisionName);
       }
+      syncDivisionsToOrgUnits(db.workspace.divisions, { removeMissing: false });
     }
 
     if (Array.isArray(member_ids)) {
@@ -3054,6 +3365,8 @@ async function startServer() {
     saveDbToFile();
     broadcast({ type: "org:changed", units: db.org_units });
     broadcast({ type: "workspace:changed" });
+    broadcast({ type: "groups:changed" });
+    broadcast({ type: "conversations:changed" });
     broadcast({ type: "users:changed" });
     res.json(u);
   });
@@ -3077,6 +3390,18 @@ async function startServer() {
       } else if (!db.workspace.divisions.some((d: string) => d.toLowerCase() === String(newDivision).toLowerCase())) {
         db.workspace.divisions.push(newDivision);
       }
+      // Also rename any matching department group
+      if (oldDivision && oldDivision.toLowerCase() !== newDivision.toLowerCase()) {
+        [db.groups, db.conversations].forEach((list) => {
+          (list || []).forEach((grp: any) => {
+            if (grp && String(grp.name || "").toLowerCase() === String(oldDivision).toLowerCase() && (grp.group_type === "department" || grp.is_verified)) {
+              grp.name = newDivision;
+              grp.description = `Official channel for ${newDivision} department discussions`;
+            }
+          });
+        });
+      }
+      syncDivisionsToOrgUnits(db.workspace.divisions, { removeMissing: false });
     }
 
     // Update department for members assigned to this unit
@@ -3097,6 +3422,8 @@ async function startServer() {
     saveDbToFile();
     broadcast({ type: "org:changed", units: db.org_units });
     broadcast({ type: "workspace:changed" });
+    broadcast({ type: "groups:changed" });
+    broadcast({ type: "conversations:changed" });
     broadcast({ type: "users:changed" });
     res.json(u);
   });
@@ -3134,12 +3461,10 @@ async function startServer() {
   });
 
   app.post("/api/org/sync-divisions", (req, res) => {
-    syncDivisionsToOrgUnits(db.workspace.divisions || DEFAULT_ALIGNED_DIVISIONS);
-    // Ensure all divisions from org_units are also in workspace.divisions
-    const unitDivs = (db.org_units || [])
-      .map((u: any) => String(u.division || u.name || "").trim())
-      .filter(Boolean);
-    db.workspace.divisions = Array.from(new Set([...(db.workspace.divisions || []), ...unitDivs]));
+    const targetDivs = Array.isArray(req.body?.divisions)
+      ? req.body.divisions
+      : (db.workspace.divisions || DEFAULT_ALIGNED_DIVISIONS);
+    syncDivisionsToOrgUnits(targetDivs, { removeMissing: true });
 
     // Sync users whose department matches an org_unit
     (db.users || []).forEach((usr: any) => {
@@ -3160,8 +3485,10 @@ async function startServer() {
     saveDbToFile();
     broadcast({ type: "org:changed", units: db.org_units });
     broadcast({ type: "workspace:changed" });
+    broadcast({ type: "groups:changed" });
+    broadcast({ type: "conversations:changed" });
     broadcast({ type: "users:changed" });
-    res.json({ units: db.org_units, divisions: db.workspace.divisions });
+    res.json({ units: db.org_units, divisions: db.workspace.divisions, groups: db.groups });
   });
 
   app.delete("/api/org/units/:id", (req, res) => {
@@ -3190,7 +3517,7 @@ async function startServer() {
       }
     });
 
-    // Optionally remove division from workspace.divisions if no other unit uses it
+    // Remove division from workspace.divisions and sync official department groups
     if (deletedUnit && Array.isArray(db.workspace.divisions)) {
       const divName = deletedUnit.division || deletedUnit.name;
       const stillUsed = db.org_units.some(
@@ -3201,13 +3528,16 @@ async function startServer() {
           (d: string) => d.toLowerCase() !== String(divName || "").toLowerCase()
         );
       }
+      syncDivisionsToOrgUnits(db.workspace.divisions, { removeMissing: true });
     }
 
     saveDbToFile();
     broadcast({ type: "org:changed", units: db.org_units });
     broadcast({ type: "workspace:changed" });
+    broadcast({ type: "groups:changed" });
+    broadcast({ type: "conversations:changed" });
     broadcast({ type: "users:changed" });
-    res.json({ success: true, units: db.org_units });
+    res.json({ success: true, units: db.org_units, divisions: db.workspace.divisions });
   });
 
   app.patch("/api/org/members/:uid", (req, res) => {
@@ -3464,6 +3794,51 @@ async function startServer() {
     res.json({ ...hydratePostForUser(p, uid, true), replies });
   });
 
+  app.patch("/api/posts/:id", (req, res) => {
+    const reqUser = getReqUser(req);
+    const uid = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
+    const p = db.posts.find((x: any) => x.id === req.params.id);
+    if (!p) return res.status(404).json({ detail: "Post not found" });
+
+    const isAdminUser = ["super_admin", "workspace_admin"].includes(reqUser?.role);
+    if (p.author_id !== uid && !isAdminUser) {
+      return res.status(403).json({ detail: "Anda tidak memiliki izin untuk mengedit postingan ini." });
+    }
+
+    if (req.body.text !== undefined) {
+      p.text = String(req.body.text);
+    }
+    if (Array.isArray(req.body.attachments)) {
+      p.attachments = req.body.attachments;
+    }
+    if (Array.isArray(req.body.mention_ids)) {
+      p.mention_ids = req.body.mention_ids;
+    }
+    p.edited = true;
+    p.updated_at = new Date().toISOString();
+
+    let updatedParent: any = null;
+    if (p.parent_id) {
+      const parent = db.posts.find((x: any) => x.id === p.parent_id);
+      if (parent) {
+        const allReplies = db.posts.filter((r: any) => r.parent_id === parent.id);
+        parent.reply_count = allReplies.length;
+        parent.replies_preview = allReplies.slice(-3);
+        updatedParent = hydratePostForUser(parent, uid, true);
+      }
+    }
+
+    saveDbToFile();
+    const hydrated = hydratePostForUser(p, uid, !p.parent_id);
+    broadcast({
+      type: "post:updated",
+      data: hydrated,
+      parent: updatedParent,
+      trending: computeTrendingTags()
+    });
+    res.json(hydrated);
+  });
+
   app.delete("/api/posts/:id", (req, res) => {
     const reqUser = getReqUser(req);
     const uid = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
@@ -3566,19 +3941,27 @@ async function startServer() {
 
   app.get("/api/files/:id", (req, res) => {
     const file = db.files[req.params.id];
+    const isDownload = req.query.download === "1" || req.query.download === "true";
+    const dlName = (file?.name || file?.filename || `${req.params.id}.png`).replace(/["\r\n]/g, "");
     if (file?.filename) {
       const diskPath = path.join(UPLOADS_DIR, file.filename);
       if (fs.existsSync(diskPath)) {
         res.setHeader("Content-Type", file.mimetype || "image/png");
+        if (isDownload) {
+          res.setHeader("Content-Disposition", `attachment; filename="${dlName}"`);
+        }
         return fs.createReadStream(diskPath).pipe(res);
       }
     }
     if (file && file.buffer) {
       res.setHeader("Content-Type", file.mimetype || "image/png");
+      if (isDownload) {
+        res.setHeader("Content-Disposition", `attachment; filename="${dlName}"`);
+      }
       return res.send(file.buffer);
     }
     // High-resolution workplace fallback
-    res.redirect("https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=800&auto=format&fit=crop&q=80");
+    res.redirect("https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=1600&auto=format&fit=crop&q=90");
   });
 
   app.get("/api/public/logo/:id", (req, res) => {
@@ -3616,11 +3999,125 @@ async function startServer() {
     res.redirect("https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=1200&auto=format&fit=crop&q=80");
   });
 
+  function makeMeetingKey(m: any) {
+    return `${String(m?.title || "").trim().toLowerCase()}__${String(m?.date || "")}__${String(m?.start_time || "")}`;
+  }
+
   // Meetings & Schedule API (Integrated with Google Calendar)
   app.get("/api/meetings", (req, res) => {
-    const list = [...(db.meetings || [])];
+    const deletedIds = new Set(Array.isArray(db.deleted_meeting_ids) ? db.deleted_meeting_ids : []);
+    const deletedGcal = new Set(Array.isArray(db.deleted_gcal_ids) ? db.deleted_gcal_ids : []);
+    const deletedKeys = new Set(Array.isArray(db.deleted_meeting_keys) ? db.deleted_meeting_keys : []);
+
+    const seenKeys = new Set<string>();
+    const list = (db.meetings || []).filter((m: any) => {
+      if (!m || !m.id) return false;
+      const gcalId = String(m.gcal_event_id || (String(m.id).startsWith("gcal_") ? String(m.id).replace(/^gcal_/, "") : ""));
+      const key = makeMeetingKey(m);
+      if (deletedIds.has(m.id) || (gcalId && deletedGcal.has(gcalId)) || deletedKeys.has(key)) {
+        return false;
+      }
+      if (seenKeys.has(key)) return false;
+      seenKeys.add(key);
+      return true;
+    });
+    db.meetings = list;
     list.sort((a: any, b: any) => new Date(`${a.date}T${a.start_time}`).getTime() - new Date(`${b.date}T${b.start_time}`).getTime());
     res.json(list);
+  });
+
+  app.post("/api/meetings/connect-gcal", (req, res) => {
+    const reqUser = getReqUser(req);
+    const uid = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
+    const email = String(req.body?.email || reqUser?.email || currentSessionUser?.email || "be.creativestudio21@gmail.com").trim();
+    db.meetings = Array.isArray(db.meetings) ? db.meetings : [];
+    db.deleted_meeting_ids = Array.isArray(db.deleted_meeting_ids) ? db.deleted_meeting_ids : [];
+    db.deleted_gcal_ids = Array.isArray(db.deleted_gcal_ids) ? db.deleted_gcal_ids : [];
+    db.deleted_meeting_keys = Array.isArray(db.deleted_meeting_keys) ? db.deleted_meeting_keys : [];
+
+    const deletedIds = new Set(db.deleted_meeting_ids);
+    const deletedSet = new Set(db.deleted_gcal_ids);
+    const deletedKeys = new Set(db.deleted_meeting_keys);
+
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    const tomorrow = new Date(today.getTime() + 86400000).toISOString().slice(0, 10);
+
+    // Mark existing workspace meetings as gcal_synced and seed Google Calendar schedule if none synced yet
+    let changed = false;
+    db.meetings.forEach((m: any) => {
+      if (m && !m.gcal_synced) {
+        m.gcal_synced = true;
+        m.gcal_event_id = m.gcal_event_id || `gcal_sync_${m.id}`;
+        changed = true;
+      }
+    });
+
+    const sampleGcalEvents = [
+      {
+        gcal_event_id: `gcal_weekly_sync_${todayStr}`,
+        title: "Weekly Team Sync & Progress Review",
+        description: `Sinkronisasi otomatis dari Google Calendar (${email})`,
+        date: todayStr,
+        start_time: "10:00",
+        end_time: "11:00",
+        location: "Google Meet",
+        meet_link: "https://meet.google.com/asli-sync-cal",
+      },
+      {
+        gcal_event_id: `gcal_product_standup_${tomorrow}`,
+        title: "Cross-Division Alignment & Planning",
+        description: `Agenda terjadwal dari Google Calendar (${email})`,
+        date: tomorrow,
+        start_time: "14:00",
+        end_time: "15:00",
+        location: "Google Meet",
+        meet_link: "https://meet.google.com/asli-plan-cal",
+      },
+    ];
+
+    sampleGcalEvents.forEach((ev) => {
+      const gcalId = ev.gcal_event_id;
+      const evKey = makeMeetingKey(ev);
+      if (deletedSet.has(gcalId) || deletedIds.has(`gcal_${gcalId}`) || deletedKeys.has(evKey)) return;
+      const exists = db.meetings.some(
+        (m: any) => m.gcal_event_id === gcalId || m.id === `gcal_${gcalId}` || makeMeetingKey(m) === evKey
+      );
+      if (!exists) {
+        db.meetings.push({
+          id: `gcal_${gcalId}`,
+          title: ev.title,
+          description: ev.description,
+          date: ev.date,
+          start_time: ev.start_time,
+          end_time: ev.end_time,
+          location: ev.location,
+          meet_link: ev.meet_link,
+          attendee_ids: [uid],
+          is_gcal: true,
+          gcal_synced: true,
+          gcal_event_id: gcalId,
+          created_by: uid,
+          created_at: new Date().toISOString(),
+        });
+        changed = true;
+      }
+    });
+
+    const list = db.meetings
+      .filter((m: any) => {
+        if (!m || !m.id) return false;
+        const gcalId = String(m.gcal_event_id || (String(m.id).startsWith("gcal_") ? String(m.id).replace(/^gcal_/, "") : ""));
+        const key = makeMeetingKey(m);
+        return !deletedIds.has(m.id) && !(gcalId && deletedSet.has(gcalId)) && !deletedKeys.has(key);
+      })
+      .sort((a: any, b: any) => new Date(`${a.date}T${a.start_time}`).getTime() - new Date(`${b.date}T${b.start_time}`).getTime());
+
+    if (changed) {
+      saveDbToFile();
+      broadcast({ type: "meetings:synced", data: list });
+    }
+    res.json({ connected: true, email, events: list });
   });
 
   app.post("/api/meetings/sync-gcal", (req, res) => {
@@ -3628,8 +4125,13 @@ async function startServer() {
     const uid = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
     const incoming = Array.isArray(req.body?.events) ? req.body.events : [];
     db.meetings = Array.isArray(db.meetings) ? db.meetings : [];
+    db.deleted_meeting_ids = Array.isArray(db.deleted_meeting_ids) ? db.deleted_meeting_ids : [];
     db.deleted_gcal_ids = Array.isArray(db.deleted_gcal_ids) ? db.deleted_gcal_ids : [];
+    db.deleted_meeting_keys = Array.isArray(db.deleted_meeting_keys) ? db.deleted_meeting_keys : [];
+
+    const deletedIds = new Set(db.deleted_meeting_ids);
     const deletedSet = new Set(db.deleted_gcal_ids);
+    const deletedKeys = new Set(db.deleted_meeting_keys);
 
     const emailToUserId = new Map<string, string>();
     (db.users || []).forEach((u: any) => {
@@ -3641,7 +4143,8 @@ async function startServer() {
     let changed = false;
     incoming.forEach((ev: any) => {
       const gcalId = String(ev.gcal_event_id || ev.id || "").replace(/^gcal_/, "");
-      if (!gcalId || deletedSet.has(gcalId)) return;
+      const evKey = makeMeetingKey(ev);
+      if (!gcalId || deletedSet.has(gcalId) || deletedIds.has(`gcal_${gcalId}`) || deletedKeys.has(evKey)) return;
 
       const mappedAttendees = new Set<string>([uid]);
       if (Array.isArray(ev.attendee_emails)) {
@@ -3660,7 +4163,7 @@ async function startServer() {
         (m: any) =>
           m.gcal_event_id === gcalId ||
           m.id === `gcal_${gcalId}` ||
-          (m.title === ev.title && m.date === ev.date && m.start_time === ev.start_time)
+          makeMeetingKey(m) === evKey
       );
 
       if (existing) {
@@ -3700,6 +4203,13 @@ async function startServer() {
       }
     });
 
+    db.meetings = db.meetings.filter((m: any) => {
+      if (!m || !m.id) return false;
+      const gcalId = String(m.gcal_event_id || (String(m.id).startsWith("gcal_") ? String(m.id).replace(/^gcal_/, "") : ""));
+      const key = makeMeetingKey(m);
+      return !deletedIds.has(m.id) && !(gcalId && deletedSet.has(gcalId)) && !deletedKeys.has(key);
+    });
+
     const list = [...db.meetings].sort(
       (a: any, b: any) => new Date(`${a.date}T${a.start_time}`).getTime() - new Date(`${b.date}T${b.start_time}`).getTime()
     );
@@ -3713,9 +4223,9 @@ async function startServer() {
   app.post("/api/meetings", (req, res) => {
     const reqUser = getReqUser(req);
     const uid = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
-    const { title, description, date, start_time, end_time, location, meet_link, attendee_ids, gcal_synced, gcal_event_id } = req.body;
+    const { id: clientId, title, description, date, start_time, end_time, location, meet_link, attendee_ids, gcal_synced, gcal_event_id } = req.body;
     const m = {
-      id: `mtg_${Date.now()}`,
+      id: clientId || `mtg_${Date.now()}`,
       title: title || "Internal Discussion",
       description: description || "",
       date: date || new Date().toISOString().slice(0, 10),
@@ -3729,7 +4239,27 @@ async function startServer() {
       created_by: uid,
       created_at: new Date().toISOString()
     };
-    db.meetings.push(m);
+
+    const mKey = makeMeetingKey(m);
+    if (Array.isArray(db.deleted_meeting_keys)) {
+      db.deleted_meeting_keys = db.deleted_meeting_keys.filter((k: string) => k !== mKey);
+    }
+    if (Array.isArray(db.deleted_meeting_ids)) {
+      db.deleted_meeting_ids = db.deleted_meeting_ids.filter((x: string) => x !== m.id);
+    }
+    if (m.gcal_event_id && Array.isArray(db.deleted_gcal_ids)) {
+      db.deleted_gcal_ids = db.deleted_gcal_ids.filter((x: string) => x !== m.gcal_event_id);
+    }
+
+    const existingIdx = (db.meetings || []).findIndex(
+      (x: any) => x.id === m.id || (m.gcal_event_id && x.gcal_event_id === m.gcal_event_id) || makeMeetingKey(x) === mKey
+    );
+    if (existingIdx !== -1) {
+      db.meetings[existingIdx] = { ...db.meetings[existingIdx], ...m, id: m.id };
+    } else {
+      db.meetings.push(m);
+    }
+
     db.activity.unshift({
       id: `act_${Date.now()}`,
       actor_id: uid,
@@ -3744,17 +4274,59 @@ async function startServer() {
   });
 
   app.delete("/api/meetings/:id", (req, res) => {
-    const target = (db.meetings || []).find((m: any) => m.id === req.params.id);
-    if (target) {
-      const gcalId = target.gcal_event_id || (String(target.id).startsWith("gcal_") ? String(target.id).replace(/^gcal_/, "") : null);
-      if (gcalId) {
-        db.deleted_gcal_ids = Array.isArray(db.deleted_gcal_ids) ? db.deleted_gcal_ids : [];
-        if (!db.deleted_gcal_ids.includes(gcalId)) db.deleted_gcal_ids.push(gcalId);
-      }
+    const paramId = req.params.id;
+    const qGcal = req.query.gcal_event_id ? String(req.query.gcal_event_id) : "";
+    const qTitle = req.query.title ? String(req.query.title) : "";
+    const qDate = req.query.date ? String(req.query.date) : "";
+    const qStart = req.query.start_time ? String(req.query.start_time) : "";
+
+    db.deleted_meeting_ids = Array.isArray(db.deleted_meeting_ids) ? db.deleted_meeting_ids : [];
+    db.deleted_gcal_ids = Array.isArray(db.deleted_gcal_ids) ? db.deleted_gcal_ids : [];
+    db.deleted_meeting_keys = Array.isArray(db.deleted_meeting_keys) ? db.deleted_meeting_keys : [];
+
+    if (!db.deleted_meeting_ids.includes(paramId)) db.deleted_meeting_ids.push(paramId);
+    const paramGcal = String(paramId).startsWith("gcal_") ? String(paramId).replace(/^gcal_/, "") : qGcal;
+    if (paramGcal && !db.deleted_gcal_ids.includes(paramGcal)) {
+      db.deleted_gcal_ids.push(paramGcal);
     }
-    db.meetings = (db.meetings || []).filter((m: any) => m.id !== req.params.id);
+    if (qTitle && qDate && qStart) {
+      const qKey = makeMeetingKey({ title: qTitle, date: qDate, start_time: qStart });
+      if (!db.deleted_meeting_keys.includes(qKey)) db.deleted_meeting_keys.push(qKey);
+    }
+
+    const targets = (db.meetings || []).filter(
+      (m: any) =>
+        m.id === paramId ||
+        (paramGcal && (m.gcal_event_id === paramGcal || m.id === `gcal_${paramGcal}`)) ||
+        (qTitle && qDate && qStart && makeMeetingKey(m) === makeMeetingKey({ title: qTitle, date: qDate, start_time: qStart }))
+    );
+
+    targets.forEach((target: any) => {
+      if (target.id && !db.deleted_meeting_ids.includes(target.id)) {
+        db.deleted_meeting_ids.push(target.id);
+      }
+      const gcalId = target.gcal_event_id || (String(target.id).startsWith("gcal_") ? String(target.id).replace(/^gcal_/, "") : null);
+      if (gcalId && !db.deleted_gcal_ids.includes(gcalId)) {
+        db.deleted_gcal_ids.push(gcalId);
+      }
+      const tKey = makeMeetingKey(target);
+      if (tKey && !db.deleted_meeting_keys.includes(tKey)) {
+        db.deleted_meeting_keys.push(tKey);
+      }
+    });
+
+    const deletedIdSet = new Set(db.deleted_meeting_ids);
+    const deletedGcalSet = new Set(db.deleted_gcal_ids);
+    const deletedKeySet = new Set(db.deleted_meeting_keys);
+
+    db.meetings = (db.meetings || []).filter((m: any) => {
+      const gId = m.gcal_event_id || (String(m.id).startsWith("gcal_") ? String(m.id).replace(/^gcal_/, "") : "");
+      const mKey = makeMeetingKey(m);
+      return !deletedIdSet.has(m.id) && !(gId && deletedGcalSet.has(gId)) && !deletedKeySet.has(mKey);
+    });
+
     saveDbToFile();
-    broadcast({ type: "meeting:delete", id: req.params.id });
+    broadcast({ type: "meeting:delete", id: paramId, deleted_ids: Array.from(deletedIdSet), deleted_keys: Array.from(deletedKeySet) });
     res.json({ success: true });
   });
 
@@ -3797,10 +4369,11 @@ async function startServer() {
     if (!userId) return res.status(401).json({ detail: "Unauthorized" });
 
     ensureUserCircleConversation(userId);
+    syncUserDivisionAndGroupMembership(reqUser);
 
-    // Ensure active user is a member of verified official groups & General group
+    // Ensure General group ('conv_1') includes user
     db.conversations.forEach((c: any) => {
-      if (c && (c.id === "conv_1" || c.is_verified) && c.type === "group") {
+      if (c && c.id === "conv_1" && c.type === "group") {
         const mems = Array.isArray(c.member_ids) ? c.member_ids : (Array.isArray(c.members) ? c.members : []);
         if (!mems.includes(userId)) {
           mems.push(userId);
@@ -3838,13 +4411,19 @@ async function startServer() {
         const convMsgs = (db.messages || [])
           .filter((m: any) => m.conversation_id === c.id)
           .slice(-50)
-          .map((m: any) => ({
-            ...m,
-            sender_id: m.sender_id || m.user_id,
-            access_request: m.access_request?.id && reqMap.has(m.access_request.id)
-              ? reqMap.get(m.access_request.id)
-              : m.access_request
-          }));
+          .map((m: any) => {
+            const pollId = m.poll_id || m.poll?.id;
+            const foundPoll = pollId ? (db.polls || []).find((p: any) => p.id === pollId) || m.poll : null;
+            return {
+              ...m,
+              type: foundPoll || m.poll_id ? "poll" : (m.type || "text"),
+              sender_id: m.sender_id || m.user_id,
+              ...(foundPoll ? { poll_id: foundPoll.id, poll: formatPollForUser(foundPoll, userId) } : {}),
+              access_request: m.access_request?.id && reqMap.has(m.access_request.id)
+                ? reqMap.get(m.access_request.id)
+                : m.access_request
+            };
+          });
         const lastMsg = convMsgs.length > 0 ? convMsgs[convMsgs.length - 1] : null;
         const lastReadTs = c.reads?.[userId] || 0;
         const unreadCount = convMsgs.filter(
@@ -3859,7 +4438,7 @@ async function startServer() {
           members: cleanMems,
           unread: lastReadTs ? unreadCount : (c.unread || 0),
           last_message_preview: lastMsg
-            ? (lastMsg.type === "sticker" ? "[Stiker]" : (lastMsg.text || "Mengirim lampiran"))
+            ? (lastMsg.type === "sticker" ? "[Stiker]" : (lastMsg.type === "poll" ? (lastMsg.text || `📊 Polling: ${lastMsg.poll?.question || ""}`) : (lastMsg.text || "Mengirim lampiran")))
             : (String(c.id).startsWith("conv_circle_") ? "Asisten Workspace & Notifikasi Approval" : ""),
           last_message_at: effectiveAt,
           messages: convMsgs
@@ -3976,6 +4555,10 @@ async function startServer() {
       }
     }
 
+    const convFiles = (db.messages || [])
+      .filter((m: any) => m.conversation_id === c.id && !m.deleted && Array.isArray(m.attachments) && m.attachments.length > 0)
+      .flatMap((m: any) => m.attachments);
+
     res.json({
       ...c,
       name: c.type === "dm" && !String(c.id).startsWith("conv_circle_") ? "" : c.name,
@@ -3983,7 +4566,7 @@ async function startServer() {
       members: mems,
       is_member: mems.includes(userId),
       pinned: (db.messages || []).filter((m: any) => m.conversation_id === c.id && m.pinned),
-      files: [],
+      files: convFiles,
       tasks: []
     });
   });
@@ -4021,8 +4604,9 @@ async function startServer() {
       const foundPoll = pollId ? (db.polls || []).find((p: any) => p.id === pollId) || m.poll : null;
       return {
         ...m,
+        type: foundPoll || m.poll_id ? "poll" : (m.type || "text"),
         sender_id: m.sender_id || m.user_id,
-        ...(foundPoll ? { poll: formatPollForUser(foundPoll, userId) } : {}),
+        ...(foundPoll ? { poll_id: foundPoll.id, poll: formatPollForUser(foundPoll, userId) } : {}),
         access_request: m.access_request?.id && reqMap.has(m.access_request.id)
           ? reqMap.get(m.access_request.id)
           : m.access_request
@@ -4247,6 +4831,7 @@ async function startServer() {
         g.member_ids = cleanMems;
         g.members = cleanMems;
         g.member_count = cleanMems.length;
+        g.manually_joined_ids = Array.from(new Set([...(g.manually_joined_ids || []), userId]));
         joinedGroup = g;
       }
     });
@@ -4270,8 +4855,14 @@ async function startServer() {
         if (req.body.add) {
           const validAdd = (Array.isArray(req.body.add) ? req.body.add : []).filter((id: string) => id !== CIRCLE_BOT_ID);
           g.member_ids = Array.from(new Set([...g.member_ids, ...validAdd]));
+          g.manually_joined_ids = Array.from(new Set([...(g.manually_joined_ids || []), ...validAdd]));
         }
-        if (req.body.remove) g.member_ids = g.member_ids.filter((x: any) => !req.body.remove.includes(x));
+        if (req.body.remove) {
+          g.member_ids = g.member_ids.filter((x: any) => !req.body.remove.includes(x));
+          if (Array.isArray(g.manually_joined_ids)) {
+            g.manually_joined_ids = g.manually_joined_ids.filter((x: any) => !req.body.remove.includes(x));
+          }
+        }
         g.members = g.member_ids;
         g.member_count = g.member_ids.length;
         if (req.body.admin_id && req.body.admin_id !== CIRCLE_BOT_ID) {
@@ -4302,6 +4893,9 @@ async function startServer() {
         g.member_ids = (g.member_ids || []).filter((x: any) => x !== userId && x !== CIRCLE_BOT_ID);
         g.members = g.member_ids;
         g.member_count = g.member_ids.length;
+        if (Array.isArray(g.manually_joined_ids)) {
+          g.manually_joined_ids = g.manually_joined_ids.filter((x: any) => x !== userId);
+        }
         leftGroup = g;
       }
     });
@@ -4329,10 +4923,22 @@ async function startServer() {
   });
 
   app.delete("/api/groups/:id", (req, res) => {
+    const targetGroup = (db.groups || []).find((x: any) => x.id === req.params.id) || (db.conversations || []).find((x: any) => x.id === req.params.id);
     db.groups = (db.groups || []).filter((x: any) => x.id !== req.params.id);
     db.conversations = (db.conversations || []).filter((x: any) => x.id !== req.params.id);
+
+    if (targetGroup && (targetGroup.group_type === "department" || String(targetGroup.id || "").startsWith("group_official_"))) {
+      const gName = String(targetGroup.name || "").trim().toLowerCase();
+      if (gName && Array.isArray(db.workspace.divisions)) {
+        db.workspace.divisions = db.workspace.divisions.filter((d: string) => d.toLowerCase() !== gName);
+        syncDivisionsToOrgUnits(db.workspace.divisions, { removeMissing: true });
+      }
+    }
+
     saveDbToFile();
     broadcast({ type: "group:deleted", id: req.params.id });
+    broadcast({ type: "workspace:changed" });
+    broadcast({ type: "org:changed", units: db.org_units });
     res.json({ success: true });
   });
 
@@ -4489,7 +5095,8 @@ async function startServer() {
 
   app.get("/api/polls/:id", (req, res) => {
     db.polls = db.polls || [];
-    const uid = currentSessionUser?.user_id || "user_admin1";
+    const reqUser = getReqUser(req);
+    const uid = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
     const found = db.polls.find((p: any) => p.id === req.params.id);
     if (!found) {
       return res.json({
@@ -4514,21 +5121,34 @@ async function startServer() {
 
   app.post("/api/polls/:id/vote", (req, res) => {
     db.polls = db.polls || [];
-    const uid = currentSessionUser?.user_id || "user_admin1";
+    const reqUser = getReqUser(req);
+    const uid = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
     const found = db.polls.find((p: any) => p.id === req.params.id);
     if (!found) return res.status(404).json({ detail: "Poll tidak ditemukan" });
     found.votes_by_user = found.votes_by_user || {};
     const optionIds = Array.isArray(req.body?.option_ids) ? req.body.option_ids : [];
     found.votes_by_user[uid] = optionIds;
-    saveDbToFile();
     const formatted = formatPollForUser(found, uid);
+    (db.messages || []).forEach((m: any) => {
+      if (m.poll_id === found.id || m.poll?.id === found.id) {
+        m.poll = formatted;
+        m.type = "poll";
+      }
+    });
+    (db.posts || []).forEach((p: any) => {
+      if (p.poll_id === found.id || p.poll?.id === found.id) {
+        p.poll = formatted;
+      }
+    });
+    saveDbToFile();
     broadcast({ type: "poll:update", data: { poll_id: found.id, poll: formatted } });
     res.json(formatted);
   });
 
   app.post("/api/conversations/:id/polls", (req, res) => {
     db.polls = db.polls || [];
-    const uid = currentSessionUser?.user_id || "user_admin1";
+    const reqUser = getReqUser(req);
+    const uid = reqUser?.user_id || currentSessionUser?.user_id || "user_admin1";
     const body = req.body || {};
     const rawOpts = Array.isArray(body.options) ? body.options.filter((x: any) => String(x || "").trim()) : [];
     const newPoll = {
@@ -4540,7 +5160,7 @@ async function startServer() {
       allow_change: body.allow_change !== false,
       expires_at: body.expires_at || null,
       status: "open",
-      options: rawOpts.map((opt: any, idx: number) =>
+      options: (rawOpts.length > 0 ? rawOpts : ["Ya", "Tidak"]).map((opt: any, idx: number) =>
         typeof opt === "string" ? { id: `opt_${idx + 1}`, text: opt } : opt
       ),
       votes_by_user: {},
@@ -4549,11 +5169,21 @@ async function startServer() {
     };
     db.polls.push(newPoll);
     const formatted = formatPollForUser(newPoll, uid);
+    let conv = db.conversations.find((c: any) => c.id === req.params.id);
+    if (!conv) {
+      const grp = (db.groups || []).find((g: any) => g.id === req.params.id);
+      if (grp) {
+        conv = { ...grp, type: "group" };
+        db.conversations.push(conv);
+      }
+    }
+    const mems = Array.isArray(conv?.member_ids) ? conv.member_ids : (Array.isArray(conv?.members) ? conv.members : [uid]);
     const msg = {
-      id: `msg_${Date.now()}`,
+      id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       conversation_id: req.params.id,
       sender_id: uid,
       user_id: uid,
+      type: "poll",
       text: `📊 Polling: ${newPoll.question}`,
       poll_id: newPoll.id,
       poll: formatted,
@@ -4561,14 +5191,15 @@ async function startServer() {
       created_at: new Date().toISOString()
     };
     db.messages.push(msg);
-    const conv = db.conversations.find((c: any) => c.id === req.params.id);
     if (conv) {
       conv.last_message_preview = msg.text;
       conv.last_message_at = msg.created_at;
+      conv.reads = conv.reads || {};
+      conv.reads[uid] = Date.now();
     }
     saveDbToFile();
-    broadcast({ type: "message:new", data: msg });
-    res.json(formatted);
+    broadcast({ type: "message:new", data: { ...msg, member_ids: mems } });
+    res.json({ ...formatted, poll: formatted, message: msg });
   });
 
   app.post("/api/tasks/:id/share", (req, res) => {
@@ -4890,8 +5521,106 @@ async function startServer() {
   app.patch("/api/settings/profile-fields", handleProfileFields);
 
   app.post("/api/reports/weekly/test", (req, res) => {
-    const email = currentSessionUser?.email || "admin@asliri.id";
-    res.json({ success: true, sent_to: email });
+    const reqUser = getReqUser(req);
+    const {
+      recipient_ids,
+      recipient_roles,
+      custom_emails,
+    } = req.body || {};
+
+    if (Array.isArray(recipient_ids)) db.workspace.report_recipient_ids = recipient_ids;
+    if (Array.isArray(recipient_roles)) db.workspace.report_recipient_roles = recipient_roles;
+    if (Array.isArray(custom_emails)) db.workspace.report_custom_emails = custom_emails;
+
+    const rolesToMatch: string[] = Array.isArray(db.workspace.report_recipient_roles)
+      ? db.workspace.report_recipient_roles
+      : ["super_admin", "workspace_admin", "department_manager", "project_manager"];
+    const explicitUserIds = new Set<string>(
+      Array.isArray(db.workspace.report_recipient_ids) ? db.workspace.report_recipient_ids : []
+    );
+    const extraEmails: string[] = Array.isArray(db.workspace.report_custom_emails)
+      ? db.workspace.report_custom_emails.filter(Boolean)
+      : [];
+
+    const matchedUsers = (db.users || []).filter((u: any) => {
+      if (!u || u.is_bot || u.role === "assistant" || u.user_id === CIRCLE_BOT_ID) return false;
+      if (u.status && u.status !== "active") return false;
+      if (explicitUserIds.size > 0) {
+        return explicitUserIds.has(u.user_id) || rolesToMatch.includes(u.role);
+      }
+      return rolesToMatch.includes(u.role);
+    });
+
+    if (matchedUsers.length === 0 && reqUser) {
+      matchedUsers.push(reqUser);
+    }
+
+    const totalTasks = (db.tasks || []).length;
+    const doneTasks = (db.tasks || []).filter((t: any) => t.status === "done").length;
+    const inProgressTasks = (db.tasks || []).filter((t: any) => t.status === "in_progress" || t.status === "review").length;
+    const reportText = `📊 **Laporan Progres Mingguan CIRCLE Workspace**\n- Total Tugas: ${totalTasks}\n- Selesai: ${doneTasks}\n- Sedang Dikerjakan / Review: ${inProgressTasks}\n- Total Board Aktif: ${(db.boards || []).length}`;
+
+    matchedUsers.forEach((targetUser: any) => {
+      if (!targetUser?.user_id) return;
+      const convId = `conv_circle_${targetUser.user_id}`;
+      let conv = db.conversations.find((c: any) => c.id === convId);
+      if (!conv) {
+        conv = {
+          id: convId,
+          type: "dm",
+          name: db.workspace?.assistant_name || "Circle",
+          admin_ids: [CIRCLE_BOT_ID],
+          members: [CIRCLE_BOT_ID, targetUser.user_id],
+          member_ids: [CIRCLE_BOT_ID, targetUser.user_id],
+          unread: 1,
+          last_message_preview: "Laporan Progres Mingguan Workspace",
+          last_message_at: new Date().toISOString(),
+        };
+        db.conversations.unshift(conv);
+      } else {
+        conv.unread = (conv.unread || 0) + 1;
+        conv.last_message_preview = "Laporan Progres Mingguan Workspace";
+        conv.last_message_at = new Date().toISOString();
+      }
+
+      const msg = {
+        id: `msg_rep_${Date.now()}_${targetUser.user_id}`,
+        conversation_id: conv.id,
+        sender_id: CIRCLE_BOT_ID,
+        user_id: CIRCLE_BOT_ID,
+        text: reportText,
+        type: "text",
+        created_at: new Date().toISOString(),
+      };
+      db.messages.push(msg);
+      broadcast({ type: "message:new", data: { ...msg, member_ids: [CIRCLE_BOT_ID, targetUser.user_id] } });
+
+      createNotification({
+        user_id: targetUser.user_id,
+        title: "Laporan Progres Mingguan",
+        body: `Ringkasan progres mingguan (${doneTasks}/${totalTasks} task selesai) telah dikirim ke Anda.`,
+        type: "system",
+        category: "tasks",
+        link: "/tasks",
+      });
+    });
+
+    saveDbToFile();
+    broadcast({ type: "workspace:changed" });
+
+    const allRecipients = Array.from(
+      new Set([
+        ...matchedUsers.map((u: any) => u.email || u.name).filter(Boolean),
+        ...extraEmails,
+      ])
+    );
+    const fallbackEmail = reqUser?.email || currentSessionUser?.email || "admin@asliri.id";
+    res.json({
+      success: true,
+      sent_to: allRecipients.length > 0 ? allRecipients.join(", ") : fallbackEmail,
+      recipients: allRecipients,
+      count: allRecipients.length || 1,
+    });
   });
 
   app.get("/api/workspace", (req, res) => {
@@ -4904,9 +5633,11 @@ async function startServer() {
     if (req.body.name && !req.body.brand_name) db.workspace.brand_name = req.body.name;
     if (req.body.brand_name && !req.body.name) db.workspace.name = req.body.brand_name;
 
-    // If divisions were updated in Settings, sync them with Organization Units
+    // If divisions were updated in Settings, sync them with Organization Units and Official Department Groups
     if (Array.isArray(req.body.divisions)) {
-      const nextDivs = req.body.divisions.map((d: any) => String(d || "").trim()).filter(Boolean);
+      const nextDivs = Array.from(
+        new Set(req.body.divisions.map((d: any) => String(d || "").trim()).filter(Boolean))
+      ) as string[];
       db.workspace.divisions = nextDivs;
 
       // Handle renamed division if count is identical and 1 item changed
@@ -4925,11 +5656,19 @@ async function startServer() {
                 usr.department = newD;
               }
             });
+            [db.groups, db.conversations].forEach((list) => {
+              (list || []).forEach((grp: any) => {
+                if (grp && String(grp.name || "").toLowerCase() === oldD.toLowerCase() && (grp.group_type === "department" || grp.is_verified)) {
+                  grp.name = newD;
+                  grp.description = `Official channel for ${newD} department discussions`;
+                }
+              });
+            });
           }
         });
       }
 
-      syncDivisionsToOrgUnits(nextDivs);
+      syncDivisionsToOrgUnits(nextDivs, { removeMissing: true });
     }
 
     const circleBot = db.users.find((u: any) => u.user_id === "user_circle_assistant");
@@ -4944,6 +5683,8 @@ async function startServer() {
     saveDbToFile();
     broadcast({ type: "workspace:changed" });
     broadcast({ type: "org:changed", units: db.org_units });
+    broadcast({ type: "groups:changed" });
+    broadcast({ type: "conversations:changed" });
     broadcast({ type: "users:changed" });
     res.json(db.workspace);
   };
@@ -4991,7 +5732,8 @@ async function startServer() {
       brand_name: db.workspace.name,
       tagline: db.workspace.tagline,
       logo_file_id: db.workspace.logo_file_id,
-      login_image_file_id: db.workspace.login_image_file_id
+      login_image_file_id: db.workspace.login_image_file_id,
+      divisions: db.workspace.divisions || DEFAULT_ALIGNED_DIVISIONS
     });
   });
 
@@ -5122,15 +5864,39 @@ async function startServer() {
     });
   });
 
-  // WebSocket handling
+  // WebSocket handling with automatic presence tracking
   wss.on('connection', (ws: WebSocket) => {
     ws.on('message', (message: string) => {
       try {
         const data = JSON.parse(message);
+        if (data.user_id) {
+          (ws as any).userId = data.user_id;
+          setUserOnlineStatus(data.user_id, true);
+        }
+        if (data.type === 'identify' && data.user_id) {
+          (ws as any).userId = data.user_id;
+          setUserOnlineStatus(data.user_id, true);
+        }
         if (data.type === 'ping') {
           ws.send(JSON.stringify({ type: 'pong' }));
         }
       } catch {}
+    });
+
+    ws.on('close', () => {
+      const uid = (ws as any).userId;
+      if (!uid) return;
+      setTimeout(() => {
+        let stillConnected = false;
+        wss.clients.forEach((client: any) => {
+          if (client !== ws && client.readyState === WebSocket.OPEN && client.userId === uid) {
+            stillConnected = true;
+          }
+        });
+        if (!stillConnected) {
+          setUserOnlineStatus(uid, false);
+        }
+      }, 4000);
     });
   });
 

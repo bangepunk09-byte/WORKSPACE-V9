@@ -81,10 +81,10 @@ export default function BoardDialog({ board, onClose, onSaved }) {
               className="h-10 w-full rounded-xl border bg-surface2 px-3 text-sm font-medium outline-none text-ink"
               data-testid="board-department-select"
             >
-              <option value="Semua Divisi">Semua Divisi (Terbuka untuk Seluruh Workspace)</option>
+              <option value="Semua Divisi">Semua Divisi</option>
               {depts.map((d) => (
                 <option key={d} value={d}>
-                  Divisi: {d} (Khusus divisi ini & karyawan yang diundang)
+                  Divisi: {d}
                 </option>
               ))}
             </select>
@@ -96,7 +96,7 @@ export default function BoardDialog({ board, onClose, onSaved }) {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-semibold text-sub">Deskripsi (Opsional)</label>
+            <label className="mb-1 block text-xs font-semibold text-sub">Deskripsi</label>
             <input
               value={f.description}
               onChange={(e) => setF({ ...f, description: e.target.value })}

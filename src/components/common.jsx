@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { format, formatDistanceToNowStrict, isToday, isPast, differenceInHours } from "date-fns";
+import { X, Download, ZoomIn, ZoomOut } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { fileUrl } from "../lib/api";
 
@@ -17,7 +19,7 @@ export function Logo({ size = 36, ws }) {
 }
 
 export function Avatar({ user, size = 36, showStatus = true, className = "" }) {
-  const { online, ws } = useApp() || {};
+  const { online, ws, me } = useApp() || {};
   const isCircleBot = user?.user_id === "user_circle_assistant" || user?.role === "assistant";
   const name = isCircleBot ? (ws?.assistant_name || user?.name || "Circle") : (user?.name || "?");
   const avatarSrc = isCircleBot
@@ -25,7 +27,12 @@ export function Avatar({ user, size = 36, showStatus = true, className = "" }) {
     : (user?.avatar || user?.picture);
 
   const initials = name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
-  const isOn = online?.has(user?.user_id);
+  const isOn = Boolean(
+    isCircleBot ||
+    (user?.user_id && me?.user_id && user.user_id === me.user_id) ||
+    online?.has(user?.user_id) ||
+    user?.online
+  );
   return (
     <span className={`relative inline-flex shrink-0 ${className}`} style={{ width: size, height: size }}>
       {avatarSrc ? (
@@ -39,6 +46,125 @@ export function Avatar({ user, size = 36, showStatus = true, className = "" }) {
         <span className={`absolute bottom-0 right-0 rounded-full border-2 border-[var(--c-surface)] ${isOn ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"}`} style={{ width: Math.max(8, size * 0.28), height: Math.max(8, size * 0.28) }} data-testid="online-indicator" />
       )}
     </span>
+  );
+}
+
+export function ImageLightbox({ image, onClose }) {
+  const [zoomed, setZoomed] = useState(false);
+
+  useEffect(() => {
+    if (!image) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" || e.key === "Esc") {
+        e.preventDefault();
+        onClose?.();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [image, onClose]);
+
+  useEffect(() => {
+    setZoomed(false);
+  }, [image?.id, image?.url]);
+
+  if (!image) return null;
+
+  const src = image.url || fileUrl(image.id);
+  const downloadHref = image.id ? `${fileUrl(image.id)}?download=1` : src;
+  const fileName = image.name || `photo-${image.id || Date.now()}.png`;
+
+  const handleDownload = async (e) => {
+    e.stopPropagation();
+    try {
+      const response = await fetch(downloadHref);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
+    } catch {
+      const a = document.createElement("a");
+      a.href = downloadHref;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex flex-col bg-black/85 backdrop-blur-sm animate-fadeIn"
+      onClick={() => onClose?.()}
+      role="dialog"
+      aria-modal="true"
+      data-testid="image-lightbox-modal"
+    >
+      {/* Top Toolbar */}
+      <div
+        className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6 bg-gradient-to-b from-black/70 to-transparent text-white"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold text-white">{fileName}</p>
+          <p className="text-[11px] text-white/70">Tekan tombol ESC atau klik di luar foto untuk menutup</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setZoomed((z) => !z)}
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-white/15 hover:bg-white/25 px-3 text-xs font-semibold text-white transition-colors cursor-pointer"
+            title={zoomed ? "Perkecil" : "Perbesar"}
+            data-testid="lightbox-zoom-btn"
+          >
+            {zoomed ? <ZoomOut size={15} /> : <ZoomIn size={15} />}
+            <span className="hidden sm:inline">{zoomed ? "Fit Screen" : "Zoom"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleDownload}
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-brand hover:opacity-95 px-3.5 text-xs font-bold text-white shadow-md transition-all cursor-pointer"
+            data-testid="lightbox-download-btn"
+          >
+            <Download size={15} />
+            <span>Download Full Version</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onClose?.()}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white/15 hover:bg-rose-500 text-white transition-colors cursor-pointer"
+            aria-label="Close preview"
+            title="Close (Esc)"
+            data-testid="lightbox-close-btn"
+          >
+            <X size={18} />
+          </button>
+        </div>
+      </div>
+
+      {/* Image Viewport */}
+      <div className="flex flex-1 items-center justify-center overflow-auto p-4 sm:p-8">
+        <img
+          src={src}
+          alt={fileName}
+          onClick={(e) => {
+            e.stopPropagation();
+            setZoomed((z) => !z);
+          }}
+          className={`rounded-2xl shadow-2xl transition-transform duration-200 select-none ${
+            zoomed
+              ? "max-w-none max-h-none scale-125 cursor-zoom-out"
+              : "max-h-[82dvh] max-w-[92vw] object-contain cursor-zoom-in"
+          }`}
+          data-testid="lightbox-image"
+        />
+      </div>
+    </div>
   );
 }
 
@@ -170,3 +296,4 @@ export function GhostButton({ children, className = "", ...p }) {
 }
 
 export const ROLE_NAMES = { super_admin: "Super Admin", workspace_admin: "Workspace Admin", department_manager: "Department Manager", project_manager: "Project Manager", employee: "Employee" };
+

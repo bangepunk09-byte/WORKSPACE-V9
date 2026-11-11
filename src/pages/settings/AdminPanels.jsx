@@ -107,7 +107,7 @@ export function AdminOverview() {
         ))}
       </div>
 
-      <Card title="Recent workspace activity (audit log)" testid="audit-log">
+      <Card title="Recent workspace activity" testid="audit-log">
         <ul className="max-h-96 space-y-2.5 overflow-y-auto pr-1">
           {logs.map((l) => (
             <li key={l.id} className="flex items-center gap-2 text-sm py-1 border-b border-slate-100 dark:border-slate-800/60 last:border-0">
@@ -209,7 +209,7 @@ export function PeopleAccess() {
   return (
     <div className="space-y-5 animate-crossfade">
       {/* 1. Access Requests from "Circle" Assistant */}
-      <Card title={`Permintaan Akses Masuk (${accessRequests.length})`} testid="access-requests-card">
+      <Card title="Permintaan Akses Masuk" testid="access-requests-card">
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
             <p className="text-xs text-sub leading-relaxed max-w-md">
@@ -223,7 +223,7 @@ export function PeopleAccess() {
                   reqFilter === "all" ? "bg-brand text-white shadow-xs" : "bg-surface2 text-ink hover:bg-surface2/70"
                 }`}
               >
-                Semua ({accessRequests.length})
+                Semua · {accessRequests.length}
               </button>
               <button
                 type="button"
@@ -232,7 +232,7 @@ export function PeopleAccess() {
                   reqFilter === "pending" ? "bg-amber-500 text-white shadow-xs" : "bg-surface2 text-ink hover:bg-surface2/70"
                 }`}
               >
-                Menunggu ({pendingCount})
+                Menunggu · {pendingCount}
               </button>
               <button
                 type="button"
@@ -305,7 +305,7 @@ export function PeopleAccess() {
                             className="rounded-full bg-emerald-600 px-3 py-1.5 font-bold text-white hover:bg-emerald-700 shadow-2xs transition-colors disabled:opacity-50"
                             data-testid={`admin-approve-req-${r.id}`}
                           >
-                            Setujui (Employee)
+                            Setujui
                           </button>
                           <button
                             disabled={busyAction === r.id}
@@ -333,7 +333,7 @@ export function PeopleAccess() {
       <Card title="Sign-in access" testid="access-settings">
         <label className="block text-xs font-semibold text-sub">Company email domains<input value={domains} onChange={(e) => setDomains(e.target.value)} className={`${inp} mt-1 w-full`} data-testid="allowed-domains-input" /></label>
         <label className="mt-3 flex items-center justify-between text-sm">Company-domain accounts join automatically<Switch checked={ws.auto_join_domain !== false} onCheckedChange={(v) => run(() => api.patch("/workspace", { auto_join_domain: v })).then(reloadWs)} data-testid="auto-join-switch" /></label>
-        <label className="mt-3 flex items-center justify-between text-sm">Other accounts go to an approval queue (otherwise rejected)<Switch checked={ws.require_approval !== false} onCheckedChange={(v) => run(() => api.patch("/workspace", { require_approval: v })).then(reloadWs)} data-testid="require-approval-switch" /></label>
+        <label className="mt-3 flex items-center justify-between text-sm">Other accounts go to an approval queue<Switch checked={ws.require_approval !== false} onCheckedChange={(v) => run(() => api.patch("/workspace", { require_approval: v })).then(reloadWs)} data-testid="require-approval-switch" /></label>
         <button type="button" onClick={() => run(() => api.patch("/workspace", { allowed_domains: String(domains || "").split(",").map((x) => x.trim()).filter(Boolean) }), "Domain berhasil disimpan!").then(reloadWs)} className="btn-accent mt-3 h-10 px-4 text-sm font-semibold" data-testid="save-domains-btn">Save domains</button>
       </Card>
 
@@ -344,7 +344,7 @@ export function PeopleAccess() {
         <ul className="mt-3 space-y-1">{invites.map((i) => <li key={i.id} className="flex items-center gap-2 text-sm"><span className="flex-1">{i.email}</span><span className="text-xs text-sub">{ROLE_NAMES[i.role]} · {i.used ? "joined" : "pending"}</span><button onClick={() => run(() => api.delete(`/admin/invitations/${i.id}`)).then(load)} className="text-sub" aria-label="Delete invitation"><Trash2 size={14} /></button></li>)}</ul>
       </Card>
 
-      <Card title={`Employees, Divisi & Roles (${users.filter((u) => !u.is_bot && u.role !== "assistant" && u.user_id !== "user_circle_assistant").length})`} testid="users-admin">
+      <Card title="Employees, Divisi & Roles" testid="users-admin">
         <div className="divide-y">
           {users
             .filter((u) => !u.is_bot && u.role !== "assistant" && u.user_id !== "user_circle_assistant")
@@ -421,12 +421,253 @@ export function PeopleAccess() {
 }
 
 export function WeeklyReportCard() {
+  const { ws, users = [], reloadWs } = useApp();
   const [busy, setBusy] = useState(false);
-  const test = async () => { setBusy(true); try { const { data } = await api.post("/reports/weekly/test"); toast.success(`Contoh laporan dikirim ke ${data.sent_to}`); } catch (e) { toast.error(errMsg(e)); } setBusy(false); };
+  const [saving, setSaving] = useState(false);
+  const [selectedRoles, setSelectedRoles] = useState(() =>
+    Array.isArray(ws?.report_recipient_roles)
+      ? ws.report_recipient_roles
+      : ["super_admin", "workspace_admin", "department_manager", "project_manager"]
+  );
+  const [selectedUserIds, setSelectedUserIds] = useState(() =>
+    Array.isArray(ws?.report_recipient_ids) ? ws.report_recipient_ids : []
+  );
+  const [customEmails, setCustomEmails] = useState(() =>
+    Array.isArray(ws?.report_custom_emails) ? ws.report_custom_emails : []
+  );
+  const [newEmail, setNewEmail] = useState("");
+
+  useEffect(() => {
+    if (Array.isArray(ws?.report_recipient_roles)) setSelectedRoles(ws.report_recipient_roles);
+    if (Array.isArray(ws?.report_recipient_ids)) setSelectedUserIds(ws.report_recipient_ids);
+    if (Array.isArray(ws?.report_custom_emails)) setCustomEmails(ws.report_custom_emails);
+  }, [ws?.report_recipient_roles, ws?.report_recipient_ids, ws?.report_custom_emails]);
+
+  const humanUsers = (users || []).filter(
+    (u) => u && !u.is_bot && u.role !== "assistant" && u.user_id !== "user_circle_assistant" && u.status !== "inactive"
+  );
+
+  const toggleRole = (roleKey) => {
+    setSelectedRoles((prev) =>
+      prev.includes(roleKey) ? prev.filter((r) => r !== roleKey) : [...prev, roleKey]
+    );
+  };
+
+  const toggleUser = (uid) => {
+    setSelectedUserIds((prev) =>
+      prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]
+    );
+  };
+
+  const addCustomEmail = () => {
+    const clean = newEmail.trim().toLowerCase();
+    if (!clean || !clean.includes("@")) return toast.error("Masukkan alamat email yang valid");
+    if (customEmails.includes(clean)) return toast.error("Email sudah ada di daftar penerima");
+    setCustomEmails((prev) => [...prev, clean]);
+    setNewEmail("");
+  };
+
+  const removeCustomEmail = (em) => {
+    setCustomEmails((prev) => prev.filter((x) => x !== em));
+  };
+
+  const saveRecipients = async () => {
+    setSaving(true);
+    try {
+      await api.patch("/workspace", {
+        report_recipient_roles: selectedRoles,
+        report_recipient_ids: selectedUserIds,
+        report_custom_emails: customEmails,
+      });
+      await reloadWs();
+      toast.success("Daftar penerima laporan berhasil disimpan!");
+    } catch (e) {
+      toast.error(errMsg(e, "Gagal menyimpan penerima laporan"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const test = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.post("/reports/weekly/test", {
+        recipient_roles: selectedRoles,
+        recipient_ids: selectedUserIds,
+        custom_emails: customEmails,
+      });
+      await reloadWs();
+      toast.success(`Laporan berhasil dikirim ke: ${data.sent_to}`);
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const activeRecipientUsers = humanUsers.filter(
+    (u) => selectedUserIds.includes(u.user_id) || selectedRoles.includes(u.role)
+  );
+
   return (
-    <Card title="Laporan progres mingguan" testid="weekly-report-card">
-      <p className="text-sm text-sub">Setiap Senin jam 09.00 WIB, admin dan manager menerima email berisi progres checkpoint dan kendala yang belum selesai di tiap board yang bisa mereka akses.</p>
-      <button onClick={test} disabled={busy} className="btn-ghost mt-3 h-10 border px-4 text-sm font-semibold disabled:opacity-50" data-testid="weekly-report-test-btn">{busy ? "Mengirim…" : "Kirim contoh ke email saya"}</button>
+    <Card title="Laporan Progres Mingguan & Penerima Report" testid="weekly-report-card">
+      <p className="text-xs text-sub leading-relaxed">
+        Atur siapa saja yang dapat menerima laporan progres mingguan, ringkasan checkpoint, dan kendala task di seluruh board workspace.
+      </p>
+
+      {/* 1. Filter by Role */}
+      <div className="mt-4">
+        <p className="text-xs font-bold text-ink mb-2">Role Penerima Otomatis</p>
+        <div className="flex flex-wrap gap-2">
+          {Object.entries(ROLE_NAMES).map(([roleKey, roleLabel]) => {
+            const active = selectedRoles.includes(roleKey);
+            return (
+              <button
+                key={roleKey}
+                type="button"
+                onClick={() => toggleRole(roleKey)}
+                className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                  active
+                    ? "border-brand bg-brand text-white shadow-2xs"
+                    : "bg-surface2 text-sub hover:text-ink"
+                }`}
+                data-testid={`report-role-${roleKey}`}
+              >
+                {roleLabel}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 2. Specific Team Members */}
+      <div className="mt-4">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-bold text-ink">Pilih Anggota Tim Tertentu</p>
+          <div className="flex items-center gap-2 text-[11px]">
+            <button
+              type="button"
+              onClick={() => setSelectedUserIds(humanUsers.map((u) => u.user_id))}
+              className="font-semibold text-brand hover:underline cursor-pointer"
+            >
+              Pilih Semua
+            </button>
+            <span className="text-sub">·</span>
+            <button
+              type="button"
+              onClick={() => setSelectedUserIds([])}
+              className="font-semibold text-sub hover:text-ink cursor-pointer"
+            >
+              Reset Pilihan
+            </button>
+          </div>
+        </div>
+        <div className="max-h-48 overflow-y-auto divide-y rounded-2xl border bg-surface2/40 px-3 py-1">
+          {humanUsers.map((u) => {
+            const isRoleMatched = selectedRoles.includes(u.role);
+            const isChecked = selectedUserIds.includes(u.user_id) || isRoleMatched;
+            return (
+              <label
+                key={u.user_id}
+                className="flex items-center justify-between gap-3 py-2 text-xs cursor-pointer"
+                data-testid={`report-recipient-user-${u.user_id}`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => {
+                      if (isRoleMatched && !selectedUserIds.includes(u.user_id)) {
+                        toggleRole(u.role);
+                      } else {
+                        toggleUser(u.user_id);
+                      }
+                    }}
+                    className="h-4 w-4 rounded accent-brand"
+                  />
+                  <Avatar user={u} size={26} showStatus={false} />
+                  <div className="min-w-0">
+                    <p className="font-bold text-ink truncate">{u.name}</p>
+                    <p className="text-[11px] text-sub truncate">{u.email} · {u.department || "Workspace"}</p>
+                  </div>
+                </div>
+                <span className="rounded-lg bg-surface px-2 py-0.5 text-[10px] font-semibold text-sub border shrink-0">
+                  {ROLE_NAMES[u.role] || u.role}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 3. Additional Custom Emails */}
+      <div className="mt-4">
+        <p className="text-xs font-bold text-ink mb-1.5">Email Penerima Tambahan</p>
+        <div className="flex items-center gap-2">
+          <input
+            type="email"
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addCustomEmail())}
+            placeholder="Tambahkan email eksternal / manajemen..."
+            className={`${inp} flex-1 text-xs`}
+            data-testid="report-custom-email-input"
+          />
+          <button
+            type="button"
+            onClick={addCustomEmail}
+            className="btn-ghost h-10 border px-3.5 text-xs font-semibold shrink-0 cursor-pointer"
+            data-testid="report-add-email-btn"
+          >
+            + Tambah Email
+          </button>
+        </div>
+        {customEmails.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {customEmails.map((em) => (
+              <span
+                key={em}
+                className="inline-flex items-center gap-1.5 rounded-full border bg-surface2 px-3 py-1 text-xs font-medium text-ink"
+              >
+                {em}
+                <button
+                  type="button"
+                  onClick={() => removeCustomEmail(em)}
+                  className="text-sub hover:text-rose-500 font-bold cursor-pointer"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+        <span className="text-xs text-sub">
+          Total penerima aktif: <b className="text-ink">{activeRecipientUsers.length + customEmails.length} orang</b>
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={saveRecipients}
+            disabled={saving}
+            className="btn-accent h-10 px-4 text-xs font-bold disabled:opacity-50 cursor-pointer"
+            data-testid="save-report-recipients-btn"
+          >
+            {saving ? "Menyimpan..." : "Simpan Penerima Report"}
+          </button>
+          <button
+            type="button"
+            onClick={test}
+            disabled={busy}
+            className="btn-ghost h-10 border px-4 text-xs font-semibold disabled:opacity-50 cursor-pointer"
+            data-testid="weekly-report-test-btn"
+          >
+            {busy ? "Mengirim…" : "Kirim Report Sekarang"}
+          </button>
+        </div>
+      </div>
     </Card>
   );
 }
@@ -524,17 +765,17 @@ export function WorkspaceBranding() {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-bold">Icon Website (Favicon)</p>
+            <p className="text-sm font-bold">Icon Website</p>
             <span className="rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 px-2 py-0.5 text-[10px] font-bold">
               Browser Tab & PWA
             </span>
           </div>
           <p className="text-xs text-sub mt-0.5">
-            Icon kecil yang muncul di tab browser, bookmark bar, dan shortcut home screen aplikasi. Format disarankan: PNG, SVG, atau ICO (persegi 1:1).
+            Icon kecil yang muncul di tab browser, bookmark bar, dan shortcut home screen aplikasi. Format disarankan: PNG, SVG, atau ICO.
           </p>
           <div className="mt-2 flex items-center gap-3">
             <label className="cursor-pointer rounded-xl bg-brand px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:opacity-90 transition-opacity">
-              Ubah Icon Website (Favicon)
+              Ubah Icon Website
               <input type="file" accept="image/*,.ico,.svg" hidden onChange={favicon} data-testid="favicon-upload-input" />
             </label>
             {ws.favicon_file_id && (
@@ -559,8 +800,8 @@ export function WorkspaceBranding() {
           data-testid="login-image-preview"
         />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold">Gambar Halaman Login (Hero Cover)</p>
-          <p className="text-xs text-sub">Background ilustrasi di sisi kiri halaman masuk (Login).</p>
+          <p className="text-sm font-bold">Gambar Halaman Login</p>
+          <p className="text-xs text-sub">Background ilustrasi di sisi kiri halaman masuk.</p>
           <div className="mt-2 flex items-center gap-3">
             <label className="cursor-pointer rounded-xl bg-brand px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:opacity-90 transition-opacity">
               Ubah Gambar Login
@@ -575,7 +816,7 @@ export function WorkspaceBranding() {
         </div>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        {[["brand_name", "App name"], ["name", "Workspace name"], ["tagline", "Tagline"], ["description", "Description"], ["org_levels", "Organization levels (comma separated)"]].map(([k, l]) => <label key={k} className="text-xs font-semibold text-sub">{l}<input value={f[k] || ""} onChange={(e) => setF({ ...f, [k]: e.target.value })} className={`${inp} mt-1 w-full`} data-testid={`ws-${k}-input`} /></label>)}
+        {[["brand_name", "App name"], ["name", "Workspace name"], ["tagline", "Tagline"], ["description", "Description"], ["org_levels", "Organization levels"]].map(([k, l]) => <label key={k} className="text-xs font-semibold text-sub">{l}<input value={f[k] || ""} onChange={(e) => setF({ ...f, [k]: e.target.value })} className={`${inp} mt-1 w-full`} data-testid={`ws-${k}-input`} /></label>)}
       </div>
       <button
         type="button"
@@ -602,28 +843,41 @@ export function DivisionsAdmin() {
 
   useEffect(() => {
     api.get("/workspace").then((r) => {
-      const divs = r.data.divisions || [];
+      const divs = Array.isArray(r.data?.divisions) ? r.data.divisions : [];
       DIVISIONS_CACHE = divs;
       setList(divs);
-      localStorage.setItem("circle_admin_divisions", JSON.stringify(divs));
+      try { localStorage.setItem("circle_admin_divisions", JSON.stringify(divs)); } catch {}
     }).catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (Array.isArray(ws?.divisions) && ws.divisions.length > 0) {
+    if (Array.isArray(ws?.divisions)) {
+      DIVISIONS_CACHE = ws.divisions;
       setList(ws.divisions);
+      try { localStorage.setItem("circle_admin_divisions", JSON.stringify(ws.divisions)); } catch {}
     }
   }, [ws?.divisions]);
 
-  const save = async (nextList, msg = "Daftar divisi & struktur organisasi berhasil disimpan!") => {
-    const cleaned = nextList.map((d) => String(d || "").trim()).filter(Boolean);
+  const save = async (nextList, msg = "Daftar divisi, struktur organisasi & grup berhasil diselaraskan!") => {
+    const cleaned = Array.from(
+      new Set(nextList.map((d) => String(d || "").trim()).filter(Boolean))
+    );
+    // 0ms optimistic update
+    DIVISIONS_CACHE = cleaned;
+    setList(cleaned);
+    try { localStorage.setItem("circle_admin_divisions", JSON.stringify(cleaned)); } catch {}
     setSaving(true);
     try {
       await api.patch("/workspace", { divisions: cleaned });
-      await api.post("/org/sync-divisions").catch(() => {});
-      DIVISIONS_CACHE = cleaned;
-      setList(cleaned);
-      localStorage.setItem("circle_admin_divisions", JSON.stringify(cleaned));
+      const syncRes = await api.post("/org/sync-divisions", { divisions: cleaned }).catch(() => null);
+      if (syncRes?.data) {
+        if (Array.isArray(syncRes.data.units)) {
+          try { localStorage.setItem("circle_org_units_cache", JSON.stringify(syncRes.data.units)); } catch {}
+        }
+        if (Array.isArray(syncRes.data.groups)) {
+          try { localStorage.setItem("circle_groups_cache", JSON.stringify(syncRes.data.groups)); } catch {}
+        }
+      }
       await reloadWs();
       toast.success(msg);
     } catch (e) {
@@ -640,8 +894,8 @@ export function DivisionsAdmin() {
       return toast.error("Divisi tersebut sudah ada");
     }
     const next = [...list, clean];
-    save(next, `Divisi "${clean}" ditambahkan & diselaraskan ke Struktur Organisasi!`);
     setN("");
+    save(next, `Divisi "${clean}" ditambahkan & diselaraskan ke Struktur Organisasi dan Grup!`);
   };
 
   const move = (idx, dir) => {
@@ -661,32 +915,33 @@ export function DivisionsAdmin() {
   return (
     <Card title="Daftar Divisi & Penyelarasan Struktur Organisasi" testid="divisions-admin">
       <p className="mb-3 text-xs text-sub">
-        Kelola daftar divisi resmi perusahaan. Setiap penambahan, perubahan nama, atau urutan divisi di sini otomatis tersimpan dan tersinkronisasi dengan halaman <b>Organization Structure</b>, <b>Employee</b>, dan <b>Directory</b>.
+        Kelola daftar divisi resmi perusahaan. Setiap penambahan, penghapusan, perubahan nama, atau urutan divisi di sini otomatis tersimpan dan tersinkronisasi dengan halaman <b>Organization Structure</b>, <b>Groups</b>, <b>Employee</b>, dan <b>Directory</b>.
       </p>
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2">
         <input
           value={n}
           onChange={(e) => setN(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && add()}
           placeholder="Tambah nama divisi baru..."
-          className={`${inp} flex-1`}
+          className={`${inp} flex-1 min-w-0`}
           data-testid="division-name-input"
         />
         <button
           type="button"
           onClick={add}
           disabled={saving}
-          className="btn-accent h-10 px-4 text-sm font-semibold flex items-center gap-1.5"
+          className="btn-accent h-10 px-5 text-sm font-semibold whitespace-nowrap shrink-0 inline-flex items-center justify-center gap-1.5 cursor-pointer"
           data-testid="division-add-btn"
         >
-          <Plus size={14} /> Tambah
+          <Plus size={14} className="shrink-0" />
+          <span>Tambah</span>
         </button>
       </div>
 
       <div className="mt-3 space-y-2 max-h-80 overflow-y-auto pr-1">
         {list.map((d, i) => (
           <div
-            key={i}
+            key={`${d}-${i}`}
             className="flex items-center gap-2 rounded-xl border bg-surface2/60 px-3 py-1.5"
             data-testid={`division-item-${String(d).replace(/\s/g, "-")}`}
           >
@@ -700,7 +955,7 @@ export function DivisionsAdmin() {
               type="button"
               disabled={i === 0}
               onClick={() => move(i, -1)}
-              className="text-sub hover:text-ink disabled:opacity-30 p-1"
+              className="text-sub hover:text-ink disabled:opacity-30 p-1 cursor-pointer"
               title="Geser ke atas"
             >
               <ArrowUp size={14} />
@@ -709,15 +964,15 @@ export function DivisionsAdmin() {
               type="button"
               disabled={i === list.length - 1}
               onClick={() => move(i, 1)}
-              className="text-sub hover:text-ink disabled:opacity-30 p-1"
+              className="text-sub hover:text-ink disabled:opacity-30 p-1 cursor-pointer"
               title="Geser ke bawah"
             >
               <ArrowDown size={14} />
             </button>
             <button
               type="button"
-              onClick={() => save(list.filter((_, idx) => idx !== i), `Divisi "${d}" dihapus`)}
-              className="text-sub hover:text-rose-500 p-1"
+              onClick={() => save(list.filter((_, idx) => idx !== i), `Divisi "${d}" berhasil dihapus & diselaraskan`)}
+              className="text-sub hover:text-rose-500 p-1 cursor-pointer"
               aria-label={`Hapus ${d}`}
               data-testid={`division-remove-${String(d).replace(/\s/g, "-")}`}
             >
@@ -733,7 +988,7 @@ export function DivisionsAdmin() {
           type="button"
           disabled={saving}
           onClick={() => save(list)}
-          className="btn-accent h-10 px-5 text-sm font-semibold disabled:opacity-50"
+          className="btn-accent h-10 px-5 text-sm font-semibold whitespace-nowrap disabled:opacity-50 cursor-pointer"
           data-testid="divisions-save-btn"
         >
           {saving ? "Menyimpan..." : "Simpan & Selaraskan Divisi"}
@@ -764,12 +1019,12 @@ export function ItemTypesAdmin() {
   const save = (l, msg) => run(() => api.patch("/workspace", { item_types: l }), msg).then(reloadWs);
   const add = () => n.trim() && run(() => api.post("/item-types", { name: n.trim(), color }), "Item ditambahkan").then(() => { setN(""); reloadWs(); });
   return (
-    <Card title="Jenis item task (kolom Item)" testid="item-types-admin">
+    <Card title="Jenis Item Task" testid="item-types-admin">
       <p className="mb-3 text-xs text-sub">Daftar item resmi dan kustom untuk task. Anda bisa menambahkan jenis item baru, mengubah warna, atau menghapusnya.</p>
       <div className="flex items-center gap-2">
-        <input value={n} onChange={(e) => setN(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} placeholder="Nama item baru..." className={`${inp} flex-1`} data-testid="item-type-name-input" />
-        <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-10 w-10 cursor-pointer rounded-lg border p-1" title="Pilih warna item" />
-        <button onClick={add} className="btn-accent h-10 px-4 text-sm font-semibold cursor-pointer" data-testid="item-type-add-btn"><Plus size={14} /> Tambah</button>
+        <input value={n} onChange={(e) => setN(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} placeholder="Nama item baru..." className={`${inp} flex-1 min-w-0`} data-testid="item-type-name-input" />
+        <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-10 w-10 shrink-0 cursor-pointer rounded-lg border p-1" title="Pilih warna item" />
+        <button type="button" onClick={add} className="btn-accent h-10 px-5 text-sm font-semibold whitespace-nowrap shrink-0 inline-flex items-center justify-center gap-1.5 cursor-pointer" data-testid="item-type-add-btn"><Plus size={14} className="shrink-0" /><span>Tambah</span></button>
       </div>
       <div className="mt-3 divide-y max-h-96 overflow-y-auto pr-1">{list.map((it, i) => (
         <div key={it.name} className="flex items-center gap-3 py-2" data-testid={`item-type-row-${it.name.replace(/\s/g, "-")}`}>
@@ -1022,7 +1277,7 @@ export function AssistantBranding() {
   const displayAvatar = avatar || defaultAvatar;
 
   return (
-    <Card title="Pengaturan Circle Assistant (AI Bot)" testid="assistant-branding-card">
+    <Card title="Pengaturan Circle Assistant" testid="assistant-branding-card">
       {/* Bot Avatar Section - Matches Workspace Identity & Branding card style */}
       <div className="mb-5 flex flex-wrap items-center gap-4 rounded-2xl border bg-surface2/50 p-4">
         <img

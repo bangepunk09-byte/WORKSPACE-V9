@@ -28,16 +28,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/
 
 export const INITIAL_UNITS = [
   { id: "unit_mgmt", name: "Management", division: "Management", description: "Board of Directors & Executive Leadership", level: "Executive", color: "#FF5364", head_id: "user_superadmin_saeful", parent_id: null, order: 0 },
-  { id: "unit_eng", name: "Engineering", division: "Engineering", description: "Software Engineering, Architecture & DevOps", level: "Division", color: "#3B82F6", head_id: "user_admin1", parent_id: "unit_mgmt", order: 1 },
-  { id: "unit_prod", name: "Product", division: "Product", description: "Product Management, Strategy & Research", level: "Division", color: "#8B5CF6", head_id: "user_superadmin_saeful", parent_id: "unit_mgmt", order: 2 },
-  { id: "unit_design", name: "Design", division: "Design", description: "UI/UX Design, Brand & Creative Assets", level: "Division", color: "#EC4899", head_id: null, parent_id: "unit_mgmt", order: 3 },
-  { id: "unit_mkt", name: "Marketing", division: "Marketing", description: "Brand Marketing, Campaign & Social Media Growth", level: "Division", color: "#10B981", head_id: null, parent_id: "unit_mgmt", order: 4 },
-  { id: "unit_sales", name: "Sales", division: "Sales", description: "Enterprise Sales, Partnership & Business Development", level: "Division", color: "#F59E0B", head_id: null, parent_id: "unit_mgmt", order: 5 },
-  { id: "unit_it", name: "IT", division: "IT", description: "IT Infrastructure, Security & Internal Support", level: "Division", color: "#06B6D4", head_id: "user_admin1", parent_id: "unit_mgmt", order: 6 },
-  { id: "unit_fin", name: "Finance", division: "Finance", description: "Financial Planning, Accounting & Treasury", level: "Division", color: "#14B8A6", head_id: null, parent_id: "unit_mgmt", order: 7 },
-  { id: "unit_legal", name: "Legal", division: "Legal", description: "Corporate Legal, Compliance & Contracts", level: "Division", color: "#6366F1", head_id: null, parent_id: "unit_mgmt", order: 8 },
-  { id: "unit_hrga", name: "HRGA", division: "HRGA", description: "Human Resources, Talent & General Affairs", level: "Division", color: "#F97316", head_id: null, parent_id: "unit_mgmt", order: 9 },
-  { id: "unit_ops", name: "Operations", division: "Operations", description: "Business Operations & Quality Assurance", level: "Division", color: "#64748B", head_id: "user_admin1", parent_id: "unit_mgmt", order: 10 }
+  { id: "unit_mkt", name: "Marketing", division: "Marketing", description: "Brand Marketing, Campaign & Social Media Growth", level: "Division", color: "#10B981", head_id: null, parent_id: "unit_mgmt", order: 1 },
+  { id: "unit_sales", name: "Sales", division: "Sales", description: "Enterprise Sales, Partnership & Business Development", level: "Division", color: "#F59E0B", head_id: null, parent_id: "unit_mgmt", order: 2 },
+  { id: "unit_it", name: "IT", division: "IT", description: "IT Infrastructure, Security & Internal Support", level: "Division", color: "#06B6D4", head_id: "user_admin1", parent_id: "unit_mgmt", order: 3 },
+  { id: "unit_fin", name: "Finance", division: "Finance", description: "Financial Planning, Accounting & Treasury", level: "Division", color: "#14B8A6", head_id: null, parent_id: "unit_mgmt", order: 4 },
+  { id: "unit_legal", name: "Legal", division: "Legal", description: "Corporate Legal, Compliance & Contracts", level: "Division", color: "#6366F1", head_id: null, parent_id: "unit_mgmt", order: 5 },
+  { id: "unit_hrga", name: "HRGA", division: "HRGA", description: "Human Resources, Talent & General Affairs", level: "Division", color: "#F97316", head_id: null, parent_id: "unit_mgmt", order: 6 }
 ];
 
 const UNIT_COLORS = [
@@ -211,18 +207,18 @@ function UnitDialog({ state, setState, units, levels, humanUsers, divisions, onD
             </div>
 
             <div>
-              <label className="mb-1 block text-xs font-semibold text-sub">Unit Induk (Parent Unit)</label>
+              <label className="mb-1 block text-xs font-semibold text-sub">Unit Induk</label>
               <select
                 value={f.parent_id || ""}
                 onChange={(e) => setF({ ...f, parent_id: e.target.value })}
                 className={inp}
                 data-testid="unit-parent-select"
               >
-                <option value="">Tanpa Induk (Top Level / Root)</option>
+                <option value="">Tanpa Induk</option>
                 {units
                   .filter((u) => u.id !== state.unit?.id)
                   .map((u) => (
-                    <option key={u.id} value={u.id}>{u.name} ({u.level})</option>
+                    <option key={u.id} value={u.id}>{u.name} · {u.level}</option>
                   ))}
               </select>
             </div>
@@ -230,7 +226,7 @@ function UnitDialog({ state, setState, units, levels, humanUsers, divisions, onD
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-xs font-semibold text-sub">Kepala Unit / Pimpinan (Head)</label>
+              <label className="mb-1 block text-xs font-semibold text-sub">Kepala Unit / Pimpinan</label>
               <select
                 value={f.head_id || ""}
                 onChange={(e) => setF({ ...f, head_id: e.target.value })}
@@ -239,7 +235,7 @@ function UnitDialog({ state, setState, units, levels, humanUsers, divisions, onD
               >
                 <option value="">Belum ditentukan</option>
                 {humanUsers.map((u) => (
-                  <option key={u.user_id} value={u.user_id}>{u.name} ({u.job_title || u.department})</option>
+                  <option key={u.user_id} value={u.user_id}>{u.name} · {u.job_title || u.department}</option>
                 ))}
               </select>
             </div>
@@ -665,10 +661,10 @@ function Table({ units, humanUsers, divisions, reload, canMove }) {
         <thead>
           <tr className="border-b text-left text-xs font-bold uppercase tracking-wider text-sub">
             <th className="p-3.5">Karyawan</th>
-            <th className="p-3.5">Jabatan (Job Title)</th>
+            <th className="p-3.5">Jabatan</th>
             <th className="p-3.5">Divisi</th>
             <th className="p-3.5">Unit Organisasi</th>
-            <th className="p-3.5">Atasan Langsung (Manager)</th>
+            <th className="p-3.5">Atasan Langsung</th>
             {canMove && <th className="p-3.5 text-right">Aksi</th>}
           </tr>
         </thead>
@@ -726,7 +722,7 @@ function Table({ units, humanUsers, divisions, reload, canMove }) {
                   >
                     <option value="">Belum ditugaskan</option>
                     {units.map((x) => (
-                      <option key={x.id} value={x.id}>{x.name} ({x.level})</option>
+                      <option key={x.id} value={x.id}>{x.name} · {x.level}</option>
                     ))}
                   </select>
                 </td>
@@ -738,7 +734,7 @@ function Table({ units, humanUsers, divisions, reload, canMove }) {
                     className="h-9 w-full rounded-xl border bg-surface2 px-2.5 text-xs outline-none focus:border-brand"
                     data-testid={`table-manager-${u.user_id}`}
                   >
-                    <option value="">Tidak ada (Top Level)</option>
+                    <option value="">Tidak ada</option>
                     {humanUsers
                       .filter((x) => x.user_id !== u.user_id)
                       .map((x) => (

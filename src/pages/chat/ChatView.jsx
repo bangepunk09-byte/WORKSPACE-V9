@@ -4,11 +4,12 @@ import { ArrowLeft, Search, PanelRight, BellOff, Bell, X, Pin, FileText, CheckSq
 import { toast } from "sonner";
 import { api, errMsg, fileUrl } from "../../lib/api";
 import { useApp } from "../../context/AppContext";
-import { Avatar, Spinner, fmtDate, GroupIcon } from "../../components/common";
+import { Avatar, Spinner, fmtDate, GroupIcon, ImageLightbox } from "../../components/common";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
 import MessageItem from "./MessageItem";
 import Composer from "./Composer";
 import CreatePollDialog from "./CreatePollDialog";
+import { seedPollCache } from "./PollCard";
 import TaskCreate from "../tasks/TaskCreate";
 import { GroupDialog, MemberPicker } from "./GroupDialog";
 import { playSound } from "../../lib/sound";
@@ -18,6 +19,7 @@ function Panel({ conv, reload, onClose }) {
   const [tab, setTab] = useState("members");
   const [edit, setEdit] = useState(false);
   const [add, setAdd] = useState(false);
+  const [lightboxImg, setLightboxImg] = useState(null);
   const navigate = useNavigate();
   const amAdmin = isAdmin || conv.admin_ids?.includes(me.user_id);
   const muted = (prefs.muted_conversations || []).includes(conv.id);
@@ -55,7 +57,7 @@ function Panel({ conv, reload, onClose }) {
             </div>); })}
         </>)}
         {tab === "pinned" && (conv.pinned?.length ? conv.pinned.map((m) => <div key={m.id} className="mb-2 rounded-xl bg-surface2 p-2.5 text-sm"><p className="text-[11px] text-sub"><Pin size={10} className="inline" /> {userMap[m.sender_id]?.name} · {fmtDate(m.created_at, "d MMM")}</p><p className="mt-0.5 line-clamp-3">{m.text || "Attachment"}</p></div>) : <p className="p-2 text-sm text-sub">No pinned messages.</p>)}
-        {tab === "files" && (conv.files?.length ? <div className="grid grid-cols-3 gap-2">{conv.files.map((f) => f.content_type?.startsWith("image/") ? <a key={f.id} href={fileUrl(f.id)} target="_blank" rel="noreferrer"><img src={fileUrl(f.id)} alt={f.name} className="aspect-square w-full rounded-xl object-cover" /></a> : <a key={f.id} href={fileUrl(f.id)} target="_blank" rel="noreferrer" className="col-span-3 flex items-center gap-2 rounded-xl bg-surface2 p-2 text-xs"><FileText size={14} />{f.name}</a>)}</div> : <p className="p-2 text-sm text-sub">No shared files yet.</p>)}
+        {tab === "files" && (conv.files?.length ? <div className="grid grid-cols-3 gap-2">{conv.files.map((f) => f.content_type?.startsWith("image/") ? <button key={f.id} type="button" onClick={() => setLightboxImg(f)} className="overflow-hidden rounded-xl border focus:outline-none cursor-zoom-in"><img src={fileUrl(f.id)} alt={f.name} className="aspect-square w-full object-cover transition-transform hover:scale-105" /></button> : <a key={f.id} href={fileUrl(f.id)} target="_blank" rel="noreferrer" className="col-span-3 flex items-center gap-2 rounded-xl bg-surface2 p-2 text-xs"><FileText size={14} />{f.name}</a>)}</div> : <p className="p-2 text-sm text-sub">No shared files yet.</p>)}
         {tab === "tasks" && (conv.tasks?.length ? conv.tasks.map((t) => <button key={t.id} onClick={() => navigate(`/tasks?task=${t.id}`)} className="mb-1 flex w-full items-center gap-2 rounded-xl p-2 text-left text-sm hover:bg-surface2"><CheckSquare size={14} className="text-brand" /><span className="text-xs text-sub">T-{t.number}</span>{t.title}</button>) : <p className="p-2 text-sm text-sub">Tasks created from this conversation appear here.</p>)}
       </div>
       {conv.type === "group" && amAdmin && !conv.is_default && (
@@ -66,6 +68,7 @@ function Panel({ conv, reload, onClose }) {
       )}
       <GroupDialog open={edit} onOpenChange={setEdit} group={conv} onSaved={reload} />
       <MemberPicker open={add} onOpenChange={setAdd} exclude={conv.member_ids} onPick={(ids) => run(() => api.post(`/groups/${conv.id}/members`, { add: ids }), "Members added")()} />
+      <ImageLightbox image={lightboxImg} onClose={() => setLightboxImg(null)} />
     </div>
   );
 }
@@ -273,6 +276,7 @@ export default function ChatView({ cid, onChange, onRead }) {
     loadConv();
     api.get(`/conversations/${cid}/messages`).then((r) => {
       const arr = Array.isArray(r.data) ? r.data : [];
+      arr.forEach((m) => { if (m?.poll) seedPollCache(m.poll); });
       const hadCount = initialMsgs.length;
       setMsgs(arr);
       CHAT_CACHE[`msgs_${cid}`] = arr;
@@ -297,10 +301,11 @@ export default function ChatView({ cid, onChange, onRead }) {
       navigate("/messages");
     }
     if (e.type === "message:new" && d.conversation_id === cid) {
+      if (d.poll) seedPollCache(d.poll);
       setMsgs((x) => {
         const arr = Array.isArray(x) ? x : [];
-        // Replace optimistic message if matching text/sender or append if new
-        const optIdx = arr.findIndex((y) => y.id === d.id || (y._optimistic && y.sender_id === d.sender_id && y.text === d.text));
+        // Replace optimistic message if matching id, poll question, or text/sender
+        const optIdx = arr.findIndex((y) => y.id === d.id || (y._optimistic && y.sender_id === d.sender_id && (y.text === d.text || (y.type === "poll" && d.type === "poll"))));
         const next = optIdx !== -1
           ? arr.map((y, idx) => (idx === optIdx ? d : y))
           : [...arr, d];
@@ -430,7 +435,7 @@ export default function ChatView({ cid, onChange, onRead }) {
       </div>
       {panel && <aside className="hidden w-[320px] shrink-0 border-l bg-surface xl:block"><Panel conv={activeConv} reload={() => { loadConv(); onChange(); }} onClose={() => setPanel(false)} /></aside>}
       <Sheet open={mobilePanel} onOpenChange={setMobilePanel}><SheetContent className="w-full bg-surface p-0 sm:max-w-sm"><SheetHeader className="sr-only"><SheetTitle>Details</SheetTitle></SheetHeader><Panel conv={activeConv} reload={() => { loadConv(); onChange(); }} onClose={() => setMobilePanel(false)} /></SheetContent></Sheet>
-      <CreatePollDialog open={poll} onOpenChange={setPoll} conversationId={cid} />
+      <CreatePollDialog open={poll} onOpenChange={setPoll} conversationId={cid} onCreated={handleSent} />
       <TaskCreate open={!!taskFrom} onOpenChange={(v) => !v && setTaskFrom(null)} preset={taskFrom ? { title: (taskFrom.text || "Task from message").slice(0, 120), description: `<p>${(taskFrom.text || "").replace(/</g, "&lt;")}</p><p><i>From conversation: ${title}</i></p>`, conversation_id: cid, message_id: taskFrom.id } : null} onCreated={(t) => { setTaskFrom(null); api.post(`/tasks/${t.id}/share`, { conversation_id: cid }).catch(() => {}); loadConv(); }} />
     </div>
   );

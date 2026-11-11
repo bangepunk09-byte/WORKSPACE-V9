@@ -371,9 +371,9 @@ export function DriveShortcutDialog({
                   onChange={(e) => setCardStyle(e.target.value)}
                   className="h-10 w-full rounded-xl border bg-surface px-3 text-sm outline-none focus:border-brand"
                 >
-                  <option value="accent_top">Garis Aksen Atas (Accent Bar)</option>
-                  <option value="soft_tint">Latar Berwarna Lembut (Soft Tint)</option>
-                  <option value="minimal">Minimalis Bersih (Clean Card)</option>
+                  <option value="accent_top">Garis Aksen Atas</option>
+                  <option value="soft_tint">Latar Berwarna Lembut</option>
+                  <option value="minimal">Minimalis Bersih</option>
                 </select>
               </div>
             )}
@@ -394,7 +394,7 @@ export function DriveShortcutDialog({
           {/* Color & Icon Full Customization */}
           <div className="grid gap-4 sm:grid-cols-2 rounded-2xl border bg-surface2/40 p-4">
             <div>
-              <label className="mb-2 block text-xs font-bold text-ink">Warna Tema Folder (Full Customize)</label>
+              <label className="mb-2 block text-xs font-bold text-ink">Warna Tema Folder</label>
               <div className="flex flex-wrap items-center gap-2">
                 {DRIVE_COLOR_PRESETS.map((c) => (
                   <button

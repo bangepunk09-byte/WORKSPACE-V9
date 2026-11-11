@@ -93,9 +93,9 @@ function NotificationPrefs() {
 
   return (
     <div className="space-y-5">
-      <Card title="Uji Coba Popup Notifikasi (Quick Action)" testid="test-notification-card">
+      <Card title="Uji Coba Popup Notifikasi" testid="test-notification-card">
         <p className="text-xs text-sub mb-3.5">
-          Klik tombol di bawah ini untuk menguji popup notifikasi atas layar beserta tombol Quick Action (Setujui Akses, Balas Chat, Lihat Tugas).
+          Klik tombol di bawah ini untuk menguji popup notifikasi atas layar beserta tombol aksi cepat.
         </p>
         <div className="flex flex-wrap items-center gap-2.5">
           <button
@@ -105,7 +105,7 @@ function NotificationPrefs() {
             className="flex h-10 items-center gap-1.5 rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white shadow-xs hover:bg-emerald-700 transition-colors disabled:opacity-50"
             data-testid="test-notif-access-btn"
           >
-            🔔 Test Akses Masuk (Approve/Reject)
+            🔔 Test Akses Masuk
           </button>
           <button
             type="button"
@@ -114,7 +114,7 @@ function NotificationPrefs() {
             className="flex h-10 items-center gap-1.5 rounded-xl bg-brand px-4 text-xs font-bold text-white shadow-xs hover:bg-brand/90 transition-colors disabled:opacity-50"
             data-testid="test-notif-msg-btn"
           >
-            💬 Test Pesan Chat (Quick Reply)
+            💬 Test Pesan Chat
           </button>
           <button
             type="button"
@@ -226,7 +226,7 @@ function CopywritingSettings() {
   const customCount = Object.keys(draft).filter((k) => draft[k]?.trim()).length;
 
   return (
-    <Card title="Custom Copywriting & Teks Aplikasi (CSV Import)" testid="copywriting-card">
+    <Card title="Custom Copywriting & Teks Aplikasi" testid="copywriting-card">
       <p className="text-xs text-sub mb-4">
         Sesuaikan semua label, tombol, salam, dan teks copywriting di seluruh aplikasi CIRCLE. Anda dapat mengedit langsung atau mengunggah file CSV.
       </p>
@@ -255,7 +255,7 @@ function CopywritingSettings() {
               onClick={handleReset}
               className="inline-flex items-center gap-1 text-xs text-rose-500 hover:underline px-2 py-1"
             >
-              <RotateCcw size={12} /> Reset ({customCount} Kustom)
+              <RotateCcw size={12} /> Reset Kustom
             </button>
           )}
           <button
@@ -276,7 +276,7 @@ function CopywritingSettings() {
         <input
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="Cari kata kunci atau copywriting (contoh: Home, Schedule, Task)..."
+          placeholder="Cari kata kunci atau copywriting..."
           className="h-9 w-full rounded-xl border bg-surface2 pl-9 pr-3 text-xs outline-none focus:ring-2 focus:ring-brand"
         />
       </div>
@@ -338,7 +338,7 @@ export default function Settings() {
     ["appearance", "Appearance"],
     ...(isAdmin ? [["workspace", "Workspace"], ["admin", "Admin dashboard"], ["access", "People & access"]] : []),
     ...(isManager ? [["labels", "Labels"], ["statuses", "Task statuses"]] : []),
-    ["copywriting", "Custom Copywriting (CSV)"],
+    ["copywriting", "Custom Copywriting"],
     ["background", "Dashboard background"],
     ...(isAdmin ? [["fields", "Profile fields"], ["stickers", "Stickers"]] : [])
   ];

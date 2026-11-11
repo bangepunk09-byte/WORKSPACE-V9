@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Newspaper, Heart, MessageCircle, SmilePlus, ImagePlus, X, Trash2, ArrowLeft, BarChart3, TrendingUp, Hash } from "lucide-react";
+import { Newspaper, Heart, MessageCircle, SmilePlus, ImagePlus, X, Trash2, ArrowLeft, BarChart3, TrendingUp, Hash, Pencil, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "../context/AppContext";
 import { api, errMsg, fileUrl, uploadFile } from "../lib/api";
-import { Avatar, PageHeader, rel } from "../components/common";
+import { Avatar, PageHeader, rel, ImageLightbox } from "../components/common";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import PollCard, { seedPollCache } from "./chat/PollCard";
 import CreatePollDialog from "./chat/CreatePollDialog";
@@ -173,6 +173,19 @@ function PostCard({ p, onChange, onDelete, reply }) {
   const navigate = useNavigate();
   const author = userMap[p.author_id];
   const isLiked = Boolean(p.liked || (Array.isArray(p.likes) && me?.user_id && p.likes.includes(me.user_id)));
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(p.text || "");
+  const [editFiles, setEditFiles] = useState(p.attachments || []);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [lightboxImg, setLightboxImg] = useState(null);
+  const editFileRef = useRef(null);
+
+  useEffect(() => {
+    if (!editing) {
+      setEditText(p.text || "");
+      setEditFiles(p.attachments || []);
+    }
+  }, [p.text, p.attachments, editing]);
 
   const like = () => {
     // 100% Optimistic like toggle (0ms latency)
@@ -206,14 +219,191 @@ function PostCard({ p, onChange, onDelete, reply }) {
     }
   };
 
+  const startEdit = (e) => {
+    e?.stopPropagation?.();
+    setEditText(p.text || "");
+    setEditFiles(p.attachments || []);
+    setEditing(true);
+  };
+
+  const addEditFiles = async (list) => {
+    for (const f of Array.from(list).slice(0, 6 - editFiles.length)) {
+      if (!f.type.startsWith("image/")) {
+        toast.error(`${f.name} bukan gambar`);
+        continue;
+      }
+      try {
+        const up = await uploadFile(f);
+        setEditFiles((prev) => [...prev, up]);
+      } catch (er) {
+        toast.error(errMsg(er));
+      }
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!editText.trim() && editFiles.length === 0 && !p.poll_id && !p.poll) {
+      toast.error("Postingan tidak boleh kosong");
+      return;
+    }
+    const prevPost = p;
+    const nextPost = {
+      ...p,
+      text: editText,
+      attachments: editFiles,
+      edited: true,
+      updated_at: new Date().toISOString()
+    };
+    onChange(nextPost);
+    setEditing(false);
+    toast.success("Postingan berhasil diperbarui");
+
+    if (String(p.id).startsWith("pst_opt_")) return;
+    setSavingEdit(true);
+    try {
+      const { data } = await api.patch(`/posts/${p.id}`, {
+        text: editText,
+        attachments: editFiles.map((f) => ({ id: f.id, name: f.name }))
+      });
+      if (data) onChange(data);
+    } catch (er) {
+      onChange(prevPost);
+      toast.error(errMsg(er, "Gagal menyimpan perubahan"));
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   return (
     <article className={`flex gap-3 ${reply ? "py-4" : "card p-4"}`} data-testid={`post-${p.id}`}>
       <Link to={`/people/${p.author_id}`} className="shrink-0"><Avatar user={author} size={reply ? 34 : 42} /></Link>
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2"><Link to={`/people/${p.author_id}`} className="truncate font-bold hover:underline">{author?.name || "—"}</Link><span className="shrink-0 text-xs text-sub">{author?.job_title ? `${author.job_title} · ` : ""}{rel(p.created_at)}</span>
-          {(p.author_id === me.user_id || isAdmin) && <button onClick={del} className="ml-auto text-sub hover:text-rose-500" aria-label="Hapus" data-testid={`post-delete-${p.id}`}><Trash2 size={14} /></button>}</div>
-        {p.text && <p className="mt-1 whitespace-pre-wrap break-words text-[15px] leading-relaxed" data-testid={`post-text-${p.id}`}><RichText text={p.text} mentionIds={p.mention_ids} /></p>}
-        {p.attachments?.length > 0 && <div className={`mt-2.5 grid gap-1.5 ${p.attachments.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>{p.attachments.map((a) => <a key={a.id} href={fileUrl(a.id)} target="_blank" rel="noreferrer"><img src={fileUrl(a.id)} alt={a.name} className={`rounded-2xl border object-cover ${p.attachments.length > 1 ? "aspect-square w-full" : "max-h-[420px] w-auto max-w-full"}`} /></a>)}</div>}
+        <div className="flex items-baseline gap-2">
+          <Link to={`/people/${p.author_id}`} className="truncate font-bold hover:underline">{author?.name || "—"}</Link>
+          <span className="shrink-0 text-xs text-sub">
+            {author?.job_title ? `${author.job_title} · ` : ""}{rel(p.created_at)}
+            {p.edited && <span className="ml-1 italic text-sub/80" data-testid={`post-edited-badge-${p.id}`}>(diedit)</span>}
+          </span>
+          {(p.author_id === me?.user_id || isAdmin) && (
+            <div className="ml-auto flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={startEdit}
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-sub hover:bg-surface2 hover:text-ink transition-colors"
+                title="Edit postingan"
+                aria-label="Edit postingan"
+                data-testid={`post-edit-${p.id}`}
+              >
+                <Pencil size={13.5} />
+              </button>
+              <button
+                type="button"
+                onClick={del}
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-sub hover:bg-rose-50 dark:hover:bg-rose-950/30 hover:text-rose-500 transition-colors"
+                title="Hapus postingan"
+                aria-label="Hapus"
+                data-testid={`post-delete-${p.id}`}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {editing ? (
+          <div className="mt-2 rounded-2xl border bg-surface2/70 p-3 space-y-2.5" data-testid={`post-edit-form-${p.id}`}>
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              rows={reply ? 2 : 3}
+              placeholder="Edit isi postingan..."
+              className="w-full resize-none rounded-xl border bg-surface p-2.5 text-[14.5px] text-ink outline-none focus:border-brand"
+              data-testid={`post-edit-input-${p.id}`}
+            />
+            {editFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {editFiles.map((f) => (
+                  <div key={f.id} className="relative">
+                    <img src={fileUrl(f.id)} alt={f.name} className="h-16 w-16 rounded-xl object-cover border" />
+                    <button
+                      type="button"
+                      onClick={() => setEditFiles(editFiles.filter((x) => x.id !== f.id))}
+                      className="absolute -right-1.5 -top-1.5 rounded-full bg-ink p-0.5 text-[var(--c-surface)]"
+                      aria-label="Hapus lampiran"
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <div>
+                <button
+                  type="button"
+                  onClick={() => editFileRef.current?.click()}
+                  className="btn-ghost inline-flex h-8 items-center gap-1.5 px-2.5 text-xs font-semibold text-sub hover:text-ink"
+                >
+                  <ImagePlus size={14} /> Tambah Foto
+                </button>
+                <input
+                  ref={editFileRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  hidden
+                  onChange={(e) => {
+                    addEditFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditing(false)}
+                  className="h-8 rounded-full border bg-surface px-3.5 text-xs font-semibold text-sub hover:text-ink"
+                  data-testid={`post-edit-cancel-${p.id}`}
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  disabled={savingEdit}
+                  onClick={saveEdit}
+                  className="btn-accent inline-flex h-8 items-center gap-1 rounded-full px-4 text-xs font-semibold text-white disabled:opacity-50"
+                  data-testid={`post-edit-save-${p.id}`}
+                >
+                  <Check size={13} /> Simpan Perubahan
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {p.text && <p className="mt-1 whitespace-pre-wrap break-words text-[15px] leading-relaxed" data-testid={`post-text-${p.id}`}><RichText text={p.text} mentionIds={p.mention_ids} /></p>}
+            {p.attachments?.length > 0 && (
+              <div className={`mt-2.5 grid gap-1.5 ${p.attachments.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+                {p.attachments.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => setLightboxImg(a)}
+                    className="group relative overflow-hidden rounded-2xl border text-left focus:outline-none cursor-zoom-in w-fit max-w-full"
+                    data-testid={`post-image-${a.id}`}
+                  >
+                    <img
+                      src={fileUrl(a.id)}
+                      alt={a.name}
+                      className={`object-cover transition-transform duration-200 group-hover:scale-[1.01] ${p.attachments.length > 1 ? "aspect-square w-full" : "max-h-[420px] w-auto max-w-full"}`}
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
         {(p.poll_id || p.poll) && <div className="mt-2.5"><PollCard pollId={p.poll_id || p.poll?.id} poll={p.poll} compact /></div>}
         <div className="mt-2 flex flex-wrap items-center gap-1">
           <button onClick={like} className={`flex h-8 items-center gap-1.5 rounded-full px-2 text-sm ${isLiked ? "text-rose-500" : "text-sub hover:text-rose-500"}`} data-testid={`post-like-${p.id}`}><Heart size={16} fill={isLiked ? "currentColor" : "none"} />{p.like_count > 0 && p.like_count}</button>
@@ -227,6 +417,7 @@ function PostCard({ p, onChange, onDelete, reply }) {
           </div>
         )}
       </div>
+      <ImageLightbox image={lightboxImg} onClose={() => setLightboxImg(null)} />
     </article>
   );
 }

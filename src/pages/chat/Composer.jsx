@@ -431,9 +431,9 @@ export default function Composer({ conv, reply, onCancelReply, onSent, onPoll })
             <PopoverContent className="w-72 bg-surface p-2" align="start"><div className="grid grid-cols-8 gap-1" data-testid="emoji-picker">{EMOJIS.map((e) => <button key={e} onClick={() => setText((t) => t + e)} className="h-8 rounded-lg text-lg hover:bg-surface2">{e}</button>)}</div></PopoverContent></Popover>
           <Popover><PopoverTrigger asChild><button className="btn-ghost flex h-10 w-10 items-center justify-center text-sub" aria-label="Stickers" data-testid="sticker-picker-btn"><Sticker size={19} /></button></PopoverTrigger>
             <PopoverContent className="w-auto bg-surface p-3" align="start"><StickerPicker onPick={(s) => post({ type: "sticker", sticker_id: s.id, sticker: s, reply_to: reply?.id }).then((ok) => ok && onCancelReply?.())} /></PopoverContent></Popover>
-          <button onClick={() => imgRef.current.click()} className="btn-ghost hidden h-10 w-10 items-center justify-center text-sub sm:flex" aria-label="Attach image" data-testid="attach-image-btn"><ImageIcon size={19} /></button>
-          <button onClick={() => fileRef.current.click()} className="btn-ghost flex h-10 w-10 items-center justify-center text-sub" aria-label="Attach file" data-testid="attach-file-btn"><Paperclip size={19} /></button>
-          {conv.type === "group" && <button onClick={onPoll} className="btn-ghost hidden h-10 w-10 items-center justify-center text-sub sm:flex" aria-label="Create poll" data-testid="composer-poll-btn"><BarChart3 size={19} /></button>}
+          <button type="button" onClick={() => imgRef.current.click()} className="btn-ghost flex h-10 w-10 items-center justify-center text-sub" aria-label="Attach image" data-testid="attach-image-btn"><ImageIcon size={19} /></button>
+          <button type="button" onClick={() => fileRef.current.click()} className="btn-ghost flex h-10 w-10 items-center justify-center text-sub" aria-label="Attach file" data-testid="attach-file-btn"><Paperclip size={19} /></button>
+          {conv.type === "group" && <button type="button" onClick={onPoll} className="btn-ghost flex h-10 w-10 items-center justify-center text-sub hover:text-brand" title="Buat Polling" aria-label="Create poll" data-testid="composer-poll-btn"><BarChart3 size={19} /></button>}
           <input ref={imgRef} type="file" accept="image/*" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
           <input ref={fileRef} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} data-testid="attach-file-input" />
         </div>
@@ -442,7 +442,6 @@ export default function Composer({ conv, reply, onCancelReply, onSent, onPoll })
           enterKeyHint="send" className="max-h-40 min-h-[40px] flex-1 resize-none bg-transparent px-1 py-2.5 text-[15px] outline-none" data-testid="message-input" />
         <button onClick={submit} disabled={busy} className="btn-accent flex h-10 w-10 shrink-0 items-center justify-center disabled:opacity-50" aria-label="Send" data-testid="send-message-btn"><SendHorizonal size={18} /></button>
       </div>
-      {conv.type === "group" && <button onClick={onPoll} className="mt-1 text-[11px] font-semibold text-sub sm:hidden" data-testid="composer-poll-btn-mobile">+ Poll</button>}
     </div>
   );
 }

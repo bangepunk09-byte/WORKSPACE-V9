@@ -4,7 +4,7 @@ import { Reply, Smile, Pencil, Trash2, Pin, CheckSquare, FileText, MoreHorizonta
 import { toast } from "sonner";
 import { api, errMsg, fileUrl } from "../../lib/api";
 import { useApp } from "../../context/AppContext";
-import { Avatar, StatusBadge, PriorityBadge, fmtTime } from "../../components/common";
+import { Avatar, StatusBadge, PriorityBadge, fmtTime, ImageLightbox } from "../../components/common";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../../components/ui/dropdown-menu";
 import PollCard from "./PollCard";
 import { StickerTile } from "./Composer";
@@ -326,6 +326,7 @@ export default function MessageItem({ m, mine, grouped, conv, onReply, onCreateT
   const { userMap, me } = useApp();
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(m.text);
+  const [lightboxImg, setLightboxImg] = useState(null);
   const navigate = useNavigate();
   const senderId = m.sender_id || m.user_id;
   const isMine = Boolean(mine || (me?.user_id && senderId === me.user_id));
@@ -335,9 +336,10 @@ export default function MessageItem({ m, mine, grouped, conv, onReply, onCreateT
   const save = act(async () => { await api.patch(`/messages/${m.id}`, { text: val }); setEditing(false); });
 
   const bubble = isMine ? "bg-brand text-white rounded-br-md shadow-xs" : "bg-surface border border-slate-200/80 dark:border-slate-700 text-ink rounded-bl-md shadow-xs";
-  const images = (m.attachments || []).filter((a) => a.content_type?.startsWith("image/"));
-  const docs = (m.attachments || []).filter((a) => !a.content_type?.startsWith("image/"));
-  const plain = m.type === "sticker" || m.type === "poll" || m.type === "task" || m.type === "approval_card" || m.type === "access_request_card";
+  const images = (m.attachments || []).filter((a) => a.content_type?.startsWith("image/") || (!a.content_type && /\.(png|jpe?g|gif|webp|svg)$/i.test(a.name || "")));
+  const docs = (m.attachments || []).filter((a) => !images.includes(a));
+  const isPoll = m.type === "poll" || Boolean(m.poll_id || m.poll);
+  const plain = m.type === "sticker" || isPoll || m.type === "task" || m.type === "approval_card" || m.type === "access_request_card";
   return (
     <div className={`group flex w-full gap-2.5 ${isMine ? "flex-row-reverse justify-start" : "flex-row justify-start"} ${grouped ? "mt-0.5" : "mt-4"}`} data-testid={`message-${m.id}`}>
       {!isMine && (
@@ -357,15 +359,34 @@ export default function MessageItem({ m, mine, grouped, conv, onReply, onCreateT
           <div className={`min-w-0 ${isMine ? "order-2" : ""}`}>
             {m.deleted ? <div className="rounded-2xl border border-dashed px-3 py-2 text-sm italic text-sub">Message deleted</div> : (<>
               {m.type === "sticker" && m.sticker && <StickerTile s={m.sticker} size={120} />}
-              {m.type === "poll" && <PollCard pollId={m.poll_id} />}
+              {isPoll && <PollCard pollId={m.poll_id || m.poll?.id} poll={m.poll} />}
               {(m.type === "task" || m.type === "approval_card") && m.task && <TaskPreview m={m} />}
               {m.type === "access_request_card" && (m.access_request || m.data) && <AccessRequestCard m={m} />}
-              {(m.text && m.type !== "poll" && m.type !== "access_request_card") && (editing ? (
+              {(m.text && !isPoll && m.type !== "access_request_card") && (editing ? (
                 <div className="flex flex-col gap-1"><textarea value={val} onChange={(e) => setVal(e.target.value)} className="w-72 max-w-full rounded-xl border bg-surface p-2 text-sm text-ink" data-testid="edit-message-input" />
                   <div className="flex gap-2 text-xs"><button onClick={save} className="font-semibold text-brand" data-testid="save-edit-btn">Save</button><button onClick={() => setEditing(false)} className="text-sub">Cancel</button></div></div>
               ) : <div className={`${plain ? "mt-1 text-sm" : `rounded-2xl px-3.5 py-2 text-[14.5px] leading-relaxed ${bubble}`} whitespace-pre-wrap break-words`}>{renderText(m.text, userMap)}{m.edited && <span className="ml-1 text-[10px] opacity-70">(edited)</span>}</div>)}
-              {images.length > 0 && <div className="mt-1 grid grid-cols-2 gap-1">{images.map((a) => <a key={a.id} href={fileUrl(a.id)} target="_blank" rel="noreferrer"><img src={fileUrl(a.id)} alt={a.name} loading="lazy" className="h-36 w-36 sm:h-44 sm:w-44 rounded-xl object-cover" /></a>)}</div>}
-              {docs.map((a) => <a key={a.id} href={fileUrl(a.id)} target="_blank" rel="noreferrer" className="mt-1 flex items-center gap-2 rounded-xl border bg-surface px-3 py-2 text-sm text-ink" data-testid={`message-file-${a.id}`}><FileText size={16} className="text-brand" /><span className="max-w-[200px] truncate">{a.name}</span><span className="text-[10px] text-sub">{Math.ceil(a.size / 1024)} KB</span></a>)}
+              {images.length > 0 && (
+                <div className={`mt-1 grid gap-1.5 ${images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+                  {images.map((a) => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => setLightboxImg(a)}
+                      className="group/img relative overflow-hidden rounded-xl border text-left focus:outline-none cursor-zoom-in"
+                      data-testid={`message-image-${a.id}`}
+                    >
+                      <img
+                        src={fileUrl(a.id)}
+                        alt={a.name || "Photo"}
+                        loading="lazy"
+                        className={`${images.length > 1 ? "h-36 w-36 sm:h-44 sm:w-44" : "max-h-72 w-auto max-w-[280px] sm:max-w-[340px]"} rounded-xl object-cover transition-transform duration-200 group-hover/img:scale-[1.02]`}
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+              {docs.map((a) => <a key={a.id} href={fileUrl(a.id)} target="_blank" rel="noreferrer" className="mt-1 flex items-center gap-2 rounded-xl border bg-surface px-3 py-2 text-sm text-ink" data-testid={`message-file-${a.id}`}><FileText size={16} className="text-brand" /><span className="max-w-[200px] truncate">{a.name}</span><span className="text-[10px] text-sub">{Math.ceil((a.size || 1024) / 1024)} KB</span></a>)}
             </>)}
           </div>
           {!m.deleted && !editing && (
@@ -390,6 +411,7 @@ export default function MessageItem({ m, mine, grouped, conv, onReply, onCreateT
         )}
         {isMine && readBy !== undefined && <span className="mt-0.5 flex items-center gap-0.5 text-[10px] text-sub" data-testid="read-receipt">{readBy > 0 ? <><CheckCheck size={12} className="text-blue-500" />Read{conv.type === "group" ? ` by ${readBy}` : ""}</> : <><Check size={12} />Delivered</>}</span>}
       </div>
+      <ImageLightbox image={lightboxImg} onClose={() => setLightboxImg(null)} />
     </div>
   );
 }

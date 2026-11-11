@@ -257,8 +257,11 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
+    if (me?.user_id) {
+      api.post("/presence/online", { user_id: me.user_id }).catch(() => {});
+    }
     loadData();
-  }, []);
+  }, [me?.user_id]);
 
   useEffect(
     () =>

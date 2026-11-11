@@ -131,6 +131,7 @@ export function AppProvider({ children }) {
   const loadAll = useCallback(async () => {
     if (!me?.user_id) return;
     const currentUid = me.user_id;
+    api.post("/presence/online", { user_id: currentUid }).catch(() => {});
     const [u, l, n, c, t, ds, p, tr, g] = await Promise.all([
       api.get("/users").catch(() => ({ data: null })),
       api.get("/labels").catch(() => ({ data: null })),
@@ -143,9 +144,12 @@ export function AppProvider({ children }) {
       api.get("/groups/browse").catch(() => ({ data: null }))
     ]);
     if (Array.isArray(u.data) && u.data.length > 0) {
-      setUsers(u.data);
-      setOnline(new Set(u.data.filter((x) => x.online).map((x) => x.user_id)));
-      try { localStorage.setItem("circle_users_cache", JSON.stringify(u.data)); } catch {}
+      const syncedUsers = u.data.map((x) => (x.user_id === currentUid ? { ...x, online: true } : x));
+      setUsers(syncedUsers);
+      setOnline(new Set([...syncedUsers.filter((x) => x.online).map((x) => x.user_id), currentUid]));
+      try { localStorage.setItem("circle_users_cache", JSON.stringify(syncedUsers)); } catch {}
+    } else {
+      setOnline((prev) => new Set([...prev, currentUid]));
     }
     if (Array.isArray(l.data)) {
       setLabels(l.data);
@@ -263,13 +267,27 @@ export function AppProvider({ children }) {
     const connect = () => {
       const s = new WebSocket(wsUrl());
       sock.current = s;
+      s.onopen = () => {
+        if (me?.user_id && s.readyState === 1) {
+          s.send(JSON.stringify({ type: "identify", user_id: me.user_id }));
+        }
+      };
       s.onmessage = (m) => {
         const evt = JSON.parse(m.data);
-        if (evt.type === "presence") {
+        if (evt.type === "presence" && evt.data?.user_id) {
+          const isUserOnline = evt.data.user_id === me?.user_id ? true : Boolean(evt.data.online);
           setOnline((prev) => {
             const n = new Set(prev);
-            evt.data.online ? n.add(evt.data.user_id) : n.delete(evt.data.user_id);
+            isUserOnline ? n.add(evt.data.user_id) : n.delete(evt.data.user_id);
+            if (me?.user_id) n.add(me.user_id);
             return n;
+          });
+          setUsers((prev) => {
+            const next = (Array.isArray(prev) ? prev : []).map((u) =>
+              u.user_id === evt.data.user_id ? { ...u, online: isUserOnline } : u
+            );
+            try { localStorage.setItem("circle_users_cache", JSON.stringify(next)); } catch {}
+            return next;
           });
         }
         if (evt.type === "notification") {
@@ -362,11 +380,27 @@ export function AppProvider({ children }) {
       };
     };
     connect();
-    const ping = setInterval(() => sock.current?.readyState === 1 && sock.current.send('{"type":"ping"}'), 25000);
+    const ping = setInterval(() => {
+      if (sock.current?.readyState === 1) {
+        sock.current.send(JSON.stringify({ type: "ping", user_id: me.user_id }));
+      }
+    }, 20000);
+    const onFocusOrVisible = () => {
+      if (document.visibilityState === "visible" && me?.user_id) {
+        api.post("/presence/online", { user_id: me.user_id }).catch(() => {});
+        if (sock.current?.readyState === 1) {
+          sock.current.send(JSON.stringify({ type: "identify", user_id: me.user_id }));
+        }
+      }
+    };
+    window.addEventListener("focus", onFocusOrVisible);
+    document.addEventListener("visibilitychange", onFocusOrVisible);
     return () => {
       closed = true;
       clearTimeout(timer);
       clearInterval(ping);
+      window.removeEventListener("focus", onFocusOrVisible);
+      document.removeEventListener("visibilitychange", onFocusOrVisible);
       sock.current?.close();
     };
   }, [me?.user_id]);
