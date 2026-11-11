@@ -1,0 +1,1191 @@
+{
+  "files": {},
+  "meetings": [
+    {
+      "id": "mtg_seed_1",
+      "title": "Sprint Planning & Backlog Review",
+      "description": "Review sprint backlog, prioritasi tiket, dan pembagian tugas antar divisi.",
+      "date": "2026-11-10",
+      "start_time": "10:00",
+      "end_time": "11:30",
+      "location": "Google Meet",
+      "meet_link": "https://meet.google.com/asli-sprint-sync",
+      "attendee_ids": [
+        "user_admin1"
+      ],
+      "gcal_synced": false,
+      "created_by": "user_admin1",
+      "created_at": "2026-11-09T01:17:06.464Z"
+    },
+    {
+      "id": "mtg_seed_2",
+      "title": "Daily Standup Engineering & Product",
+      "description": "Sinkronisasi progress harian, blockers, dan update implementasi API.",
+      "date": "2026-11-11",
+      "start_time": "09:30",
+      "end_time": "10:00",
+      "location": "Google Meet",
+      "meet_link": "https://meet.google.com/asli-daily-standup",
+      "attendee_ids": [
+        "user_admin1"
+      ],
+      "gcal_synced": false,
+      "created_by": "user_admin1",
+      "created_at": "2026-11-09T20:17:06.464Z"
+    },
+    {
+      "id": "mtg_seed_3",
+      "title": "Design System & UI Review Session",
+      "description": "Evaluasi token warna, komponen drag-and-drop, dan konsistensi mobile viewport.",
+      "date": "2026-11-12",
+      "start_time": "14:00",
+      "end_time": "15:00",
+      "location": "Meeting Room A / Google Meet",
+      "meet_link": "https://meet.google.com/asli-design-sync",
+      "attendee_ids": [
+        "user_admin1"
+      ],
+      "gcal_synced": false,
+      "created_by": "user_admin1",
+      "created_at": "2026-11-09T13:17:06.464Z"
+    }
+  ],
+  "workspace": {
+    "id": "ws_main",
+    "name": "CIRCLE Workspace",
+    "tagline": "Enterprise Collaboration & Management",
+    "logo_file_id": null,
+    "login_image_file_id": "default_login_bg",
+    "theme": {
+      "primary": "#2F7DE1",
+      "mode": "light"
+    },
+    "task_statuses": [
+      "todo",
+      "in_progress",
+      "in_review",
+      "done"
+    ],
+    "task_fields": [
+      {
+        "name": "priority"
+      },
+      {
+        "name": "estimate"
+      }
+    ],
+    "divisions": [
+      "Management",
+      "Engineering",
+      "Product",
+      "Design",
+      "Marketing",
+      "Sales",
+      "IT",
+      "Finance",
+      "Legal",
+      "HRGA",
+      "Operations"
+    ],
+    "item_types": [
+      {
+        "name": "Article Asset",
+        "color": "#FFE4E6",
+        "text_color": "#BE123C",
+        "border_color": "#FECDD3"
+      },
+      {
+        "name": "Article Copywriting",
+        "color": "#FFEDD5",
+        "text_color": "#C2410C",
+        "border_color": "#FED7AA"
+      },
+      {
+        "name": "SocMed Asset",
+        "color": "#FEF08A",
+        "text_color": "#854D0E",
+        "border_color": "#FDE047"
+      },
+      {
+        "name": "SocMed Copywriting",
+        "color": "#DCFCE7",
+        "text_color": "#15803D",
+        "border_color": "#BBF7D0"
+      },
+      {
+        "name": "Video Storyline",
+        "color": "#BAE6FD",
+        "text_color": "#0369A1",
+        "border_color": "#7DD3FC"
+      },
+      {
+        "name": "Video Storyboard",
+        "color": "#CCFBF1",
+        "text_color": "#0F766E",
+        "border_color": "#99F6E4"
+      },
+      {
+        "name": "Video Editing",
+        "color": "#F3E8FF",
+        "text_color": "#7E22CE",
+        "border_color": "#E9D5FF"
+      },
+      {
+        "name": "Deck Copywriting",
+        "color": "#2563EB",
+        "text_color": "#FFFFFF",
+        "border_color": "#1D4ED8"
+      },
+      {
+        "name": "Deck Asset",
+        "color": "#DDD6FE",
+        "text_color": "#4C1D95",
+        "border_color": "#C4B5FD"
+      },
+      {
+        "name": "Documentation",
+        "color": "#F1F5F9",
+        "text_color": "#334155",
+        "border_color": "#CBD5E1"
+      },
+      {
+        "name": "Leads",
+        "color": "#94A3B8",
+        "text_color": "#0F172A",
+        "border_color": "#64748B"
+      },
+      {
+        "name": "UI/UX",
+        "color": "#581C87",
+        "text_color": "#FFFFFF",
+        "border_color": "#3B0764"
+      },
+      {
+        "name": "Shooting",
+        "color": "#047857",
+        "text_color": "#FFFFFF",
+        "border_color": "#065F46"
+      },
+      {
+        "name": "Video Motion",
+        "color": "#78350F",
+        "text_color": "#FFFFFF",
+        "border_color": "#451A03"
+      },
+      {
+        "name": "Request HR",
+        "color": "#6B21A8",
+        "text_color": "#FFFFFF",
+        "border_color": "#581C87"
+      },
+      {
+        "name": "Other",
+        "color": "#E2E8F0",
+        "text_color": "#1E293B",
+        "border_color": "#CBD5E1"
+      }
+    ],
+    "org_levels": [
+      "Executive",
+      "Division",
+      "Department",
+      "Team"
+    ]
+  },
+  "users": [
+    {
+      "user_id": "user_admin1",
+      "email": "admin@asliri.local",
+      "name": "Admin ASLI RI",
+      "role": "super_admin",
+      "job_title": "Workspace Administrator",
+      "department": "Management",
+      "online": true,
+      "is_demo": false,
+      "status": "active",
+      "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80",
+      "picture": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80",
+      "org_unit_id": "unit_mgmt",
+      "manager_id": "user_superadmin_saeful"
+    },
+    {
+      "user_id": "user_circle_assistant",
+      "email": "circle-bot@asliri.local",
+      "name": "Circle",
+      "role": "assistant",
+      "job_title": "Workspace AI Assistant",
+      "department": "System",
+      "online": true,
+      "is_demo": false,
+      "is_bot": true,
+      "status": "active",
+      "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=CircleWorkspace&backgroundColor=FF5364",
+      "picture": "https://api.dicebear.com/7.x/bottts/svg?seed=CircleWorkspace&backgroundColor=FF5364",
+      "org_unit_id": null
+    },
+    {
+      "user_id": "user_superadmin_saeful",
+      "email": "saeful@asliri.id",
+      "password": "AsliRi2026!",
+      "name": "Saeful",
+      "role": "super_admin",
+      "job_title": "Super Administrator",
+      "department": "Management",
+      "online": true,
+      "is_demo": false,
+      "status": "active",
+      "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80",
+      "picture": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80",
+      "org_unit_id": "unit_mgmt",
+      "manager_id": null
+    }
+  ],
+  "labels": [
+    {
+      "id": "lbl_asliri",
+      "name": "ASLI RI",
+      "color": "#EF4444",
+      "description": "IP / Brand ASLI RI"
+    },
+    {
+      "id": "lbl_tixfly",
+      "name": "TIXFLY",
+      "color": "#8B5CF6",
+      "description": "IP / Brand TIXFLY"
+    },
+    {
+      "id": "lbl_bankabdi",
+      "name": "BANK ABDI",
+      "color": "#0EA5E9",
+      "description": "IP / Brand BANK ABDI"
+    },
+    {
+      "id": "lbl_tommy",
+      "name": "TOMMY FONDY",
+      "color": "#F97316",
+      "description": "IP / Brand TOMMY FONDY"
+    },
+    {
+      "id": "lbl_trinity",
+      "name": "TRINITY",
+      "color": "#EC4899",
+      "description": "IP / Brand TRINITY"
+    },
+    {
+      "id": "lbl_beezy",
+      "name": "BEEZY",
+      "color": "#EAB308",
+      "description": "IP / Brand BEEZY"
+    },
+    {
+      "id": "lbl_internal",
+      "name": "INTERNAL",
+      "color": "#1E293B",
+      "description": "IP / Brand INTERNAL"
+    }
+  ],
+  "notifications": [],
+  "tasks": [],
+  "projects": [
+    {
+      "id": "prj_1",
+      "name": "Enterprise Workspace Migration",
+      "description": "Migrasi sistem kolaborasi internal ASLI RI ke platform terpadu.",
+      "status": "active",
+      "progress": 0,
+      "owner_id": "user_admin1",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "label_ids": [
+        "lbl_1",
+        "lbl_2"
+      ],
+      "task_done": 0,
+      "task_total": 0
+    }
+  ],
+  "boards": [
+    {
+      "id": "brd_1",
+      "name": "Main Board",
+      "description": "Main tasks",
+      "department": "Semua Divisi",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ]
+    },
+    {
+      "id": "brd_1794156613712",
+      "department": "Engineering",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "created_by": "user_admin1",
+      "name": "Sprint Engineering"
+    },
+    {
+      "id": "brd_1794156613720",
+      "department": "Design",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "created_by": "user_admin1",
+      "name": "Sprint UI/UX"
+    }
+  ],
+  "conversations": [
+    {
+      "id": "conv_circle_user_admin1",
+      "type": "dm",
+      "name": "Circle (Workspace Assistant)",
+      "admin_ids": [],
+      "members": [
+        "user_circle_assistant",
+        "user_admin1"
+      ],
+      "member_ids": [
+        "user_circle_assistant",
+        "user_admin1"
+      ],
+      "unread": 0,
+      "last_message_preview": "Permintaan akses baru dari Raditya Pratama",
+      "last_message_at": "2026-11-08T16:50:01.037Z",
+      "reads": {
+        "user_admin1": 1794280469164
+      }
+    },
+    {
+      "id": "group_official_marketing",
+      "name": "Marketing",
+      "description": "Official channel for Marketing department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "type": "group"
+    },
+    {
+      "id": "group_official_sales",
+      "name": "Sales",
+      "description": "Official channel for Sales department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "type": "group"
+    },
+    {
+      "id": "group_official_it",
+      "name": "IT",
+      "description": "Official channel for IT department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "type": "group"
+    },
+    {
+      "id": "group_official_finance",
+      "name": "Finance",
+      "description": "Official channel for Finance department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "type": "group"
+    },
+    {
+      "id": "group_official_legal",
+      "name": "Legal",
+      "description": "Official channel for Legal department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "type": "group"
+    },
+    {
+      "id": "group_official_hrga",
+      "name": "HRGA",
+      "description": "Official channel for HRGA department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "type": "group"
+    }
+  ],
+  "groups": [
+    {
+      "id": "group_official_marketing",
+      "name": "Marketing",
+      "description": "Official channel for Marketing department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "type": "group",
+      "members": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "member_count": 2
+    },
+    {
+      "id": "group_official_sales",
+      "name": "Sales",
+      "description": "Official channel for Sales department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "type": "group",
+      "members": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "member_count": 2
+    },
+    {
+      "id": "group_official_it",
+      "name": "IT",
+      "description": "Official channel for IT department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "type": "group",
+      "members": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "member_count": 2
+    },
+    {
+      "id": "group_official_finance",
+      "name": "Finance",
+      "description": "Official channel for Finance department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "type": "group",
+      "members": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "member_count": 2
+    },
+    {
+      "id": "group_official_legal",
+      "name": "Legal",
+      "description": "Official channel for Legal department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "type": "group",
+      "members": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "member_count": 2
+    },
+    {
+      "id": "group_official_hrga",
+      "name": "HRGA",
+      "description": "Official channel for HRGA department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "type": "group",
+      "members": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "member_count": 2
+    }
+  ],
+  "messages": [],
+  "posts": [
+    {
+      "id": "pst_init_1",
+      "author_id": "user_admin1",
+      "text": "Selamat datang di workspace internal ASLI RI! 🎉 Silakan gunakan Beranda ini untuk update info, obrolan santai, atau diskusi lintas divisi. Jangan ragu menyematkan #welcome dan #update.",
+      "attachments": [],
+      "likes": [],
+      "like_count": 0,
+      "liked": true,
+      "reactions": {
+        "👍": [
+          "user_admin1"
+        ]
+      },
+      "reply_count": 0,
+      "replies_preview": [],
+      "created_at": "2026-11-09T21:50:13.418Z"
+    }
+  ],
+  "org_units": [
+    {
+      "id": "unit_mgmt",
+      "name": "Management",
+      "division": "Management",
+      "description": "Board of Directors & Executive Leadership",
+      "level": "Executive",
+      "color": "#FF5364",
+      "head_id": "user_superadmin_saeful",
+      "parent_id": null,
+      "order": 0
+    },
+    {
+      "id": "unit_eng",
+      "name": "Engineering",
+      "division": "Engineering",
+      "description": "Software Engineering, Architecture & DevOps",
+      "level": "Division",
+      "color": "#3B82F6",
+      "head_id": "user_admin1",
+      "parent_id": "unit_mgmt",
+      "order": 1
+    },
+    {
+      "id": "unit_prod",
+      "name": "Product",
+      "division": "Product",
+      "description": "Product Management, Strategy & Research",
+      "level": "Division",
+      "color": "#8B5CF6",
+      "head_id": "user_superadmin_saeful",
+      "parent_id": "unit_mgmt",
+      "order": 2
+    },
+    {
+      "id": "unit_design",
+      "name": "Design",
+      "division": "Design",
+      "description": "UI/UX Design, Brand & Creative Assets",
+      "level": "Division",
+      "color": "#EC4899",
+      "head_id": null,
+      "parent_id": "unit_mgmt",
+      "order": 3
+    },
+    {
+      "id": "unit_mkt",
+      "name": "Marketing",
+      "division": "Marketing",
+      "description": "Brand Marketing, Campaign & Social Media Growth",
+      "level": "Division",
+      "color": "#10B981",
+      "head_id": null,
+      "parent_id": "unit_mgmt",
+      "order": 4
+    },
+    {
+      "id": "unit_sales",
+      "name": "Sales",
+      "division": "Sales",
+      "description": "Enterprise Sales, Partnership & Business Development",
+      "level": "Division",
+      "color": "#F59E0B",
+      "head_id": null,
+      "parent_id": "unit_mgmt",
+      "order": 5
+    },
+    {
+      "id": "unit_it",
+      "name": "IT",
+      "division": "IT",
+      "description": "IT Infrastructure, Security & Internal Support",
+      "level": "Division",
+      "color": "#06B6D4",
+      "head_id": "user_admin1",
+      "parent_id": "unit_mgmt",
+      "order": 6
+    },
+    {
+      "id": "unit_fin",
+      "name": "Finance",
+      "division": "Finance",
+      "description": "Financial Planning, Accounting & Treasury",
+      "level": "Division",
+      "color": "#14B8A6",
+      "head_id": null,
+      "parent_id": "unit_mgmt",
+      "order": 7
+    },
+    {
+      "id": "unit_legal",
+      "name": "Legal",
+      "division": "Legal",
+      "description": "Corporate Legal, Compliance & Contracts",
+      "level": "Division",
+      "color": "#6366F1",
+      "head_id": null,
+      "parent_id": "unit_mgmt",
+      "order": 8
+    },
+    {
+      "id": "unit_hrga",
+      "name": "HRGA",
+      "division": "HRGA",
+      "description": "Human Resources, Talent & General Affairs",
+      "level": "Division",
+      "color": "#F97316",
+      "head_id": null,
+      "parent_id": "unit_mgmt",
+      "order": 9
+    },
+    {
+      "id": "unit_ops",
+      "name": "Operations",
+      "division": "Operations",
+      "description": "Business Operations & Quality Assurance",
+      "level": "Division",
+      "color": "#64748B",
+      "head_id": "user_admin1",
+      "parent_id": "unit_mgmt",
+      "order": 10
+    }
+  ],
+  "activity": [],
+  "reminders": [],
+  "polls": [],
+  "task_automations": [],
+  "audit_logs": [
+    {
+      "id": "log_1794153776145",
+      "actor_id": "user_admin1",
+      "actor_name": "Admin ASLI RI",
+      "action": "membuat tugas baru: TSK-002 - Temporary Audit Task",
+      "created_at": "2026-11-08T16:02:56.145Z"
+    },
+    {
+      "id": "log_1794153694290",
+      "actor_id": "user_admin1",
+      "actor_name": "Admin ASLI RI",
+      "action": "membuat tugas baru: TSK-001 - Audit Test Task",
+      "created_at": "2026-11-08T16:01:34.290Z"
+    }
+  ],
+  "invitations": [],
+  "drive_shortcuts": [
+    {
+      "id": "drv_1",
+      "name": "Brand Guidelines & Creative Assets",
+      "description": "Logo resmi ASLI RI, template presentasi, font, dan aset desain kreatif seluruh produk.",
+      "drive_url": "https://drive.google.com/drive/folders/1asli-brand-guidelines-2026",
+      "folder_id": "1asli-brand-guidelines-2026",
+      "category": "Design",
+      "badge": "Official",
+      "color": "#FF5364",
+      "icon": "palette",
+      "pinned": true,
+      "show_on_dashboard": true,
+      "access_type": "all",
+      "allowed_user_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "allowed_departments": [
+        "Design",
+        "Marketing",
+        "Product",
+        "Management",
+        "Engineering"
+      ],
+      "owner_id": "user_admin1",
+      "created_at": "2026-11-01T08:00:00.000Z",
+      "updated_at": "2026-11-10T08:00:00.000Z"
+    },
+    {
+      "id": "drv_2",
+      "name": "Sprint Engineering & Architecture",
+      "description": "Dokumentasi API, arsitektur sistem, skema database, dan catatan deployment teknis.",
+      "drive_url": "https://drive.google.com/drive/folders/1asli-engineering-architecture",
+      "folder_id": "1asli-engineering-architecture",
+      "category": "Engineering",
+      "badge": "Tech Docs",
+      "color": "#3B82F6",
+      "icon": "code",
+      "pinned": true,
+      "show_on_dashboard": true,
+      "access_type": "custom",
+      "allowed_user_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "allowed_departments": [
+        "Engineering",
+        "Product"
+      ],
+      "owner_id": "user_admin1",
+      "created_at": "2026-11-02T09:00:00.000Z",
+      "updated_at": "2026-11-10T08:30:00.000Z"
+    },
+    {
+      "id": "drv_3",
+      "name": "Product Roadmap & PRD 2026",
+      "description": "Master PRD, riset pengguna, wireframe, dan perencanaan kuartal produk.",
+      "drive_url": "https://drive.google.com/drive/folders/1asli-product-roadmap-prd",
+      "folder_id": "1asli-product-roadmap-prd",
+      "category": "Product",
+      "badge": "Q4 2026",
+      "color": "#8B5CF6",
+      "icon": "layers",
+      "pinned": true,
+      "show_on_dashboard": true,
+      "access_type": "custom",
+      "allowed_user_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "allowed_departments": [
+        "Product",
+        "Design"
+      ],
+      "owner_id": "user_superadmin_saeful",
+      "created_at": "2026-11-03T10:00:00.000Z",
+      "updated_at": "2026-11-10T09:00:00.000Z"
+    },
+    {
+      "id": "drv_4",
+      "name": "Campaign Marketing & Social Media Kit",
+      "description": "Kalender konten, materi iklan digital, press release, dan laporan performa kampanye.",
+      "drive_url": "https://drive.google.com/drive/folders/1asli-marketing-campaign-kit",
+      "folder_id": "1asli-marketing-campaign-kit",
+      "category": "Marketing",
+      "badge": "Active",
+      "color": "#10B981",
+      "icon": "megaphone",
+      "pinned": true,
+      "show_on_dashboard": true,
+      "access_type": "all",
+      "allowed_user_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "allowed_departments": [
+        "Marketing",
+        "Design",
+        "Management"
+      ],
+      "owner_id": "user_admin1",
+      "created_at": "2026-11-04T11:00:00.000Z",
+      "updated_at": "2026-11-10T09:15:00.000Z"
+    },
+    {
+      "id": "drv_5",
+      "name": "Dokumen Legal, Kontrak & NDA",
+      "description": "Arsip perjanjian kerja sama klien, NDA vendor, dan dokumen legalitas perusahaan.",
+      "drive_url": "https://drive.google.com/drive/folders/1asli-legal-contracts-nda",
+      "folder_id": "1asli-legal-contracts-nda",
+      "category": "Legal",
+      "badge": "Confidential",
+      "color": "#F59E0B",
+      "icon": "shield",
+      "pinned": false,
+      "show_on_dashboard": true,
+      "access_type": "custom",
+      "allowed_user_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "allowed_departments": [
+        "Management",
+        "Legal"
+      ],
+      "owner_id": "user_superadmin_saeful",
+      "created_at": "2026-11-05T12:00:00.000Z",
+      "updated_at": "2026-11-10T09:30:00.000Z"
+    },
+    {
+      "id": "drv_6",
+      "name": "SOP Perusahaan & Onboarding HRGA",
+      "description": "Panduan karyawan baru, peraturan perusahaan, klaim reimbursement, dan kebijakan cuti.",
+      "drive_url": "https://drive.google.com/drive/folders/1asli-hrga-sop-onboarding",
+      "folder_id": "1asli-hrga-sop-onboarding",
+      "category": "HRGA",
+      "badge": "Wajib Baca",
+      "color": "#06B6D4",
+      "icon": "book",
+      "pinned": false,
+      "show_on_dashboard": true,
+      "access_type": "all",
+      "allowed_user_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "allowed_departments": [
+        "HRGA",
+        "Management",
+        "Engineering",
+        "Product",
+        "Design",
+        "Marketing"
+      ],
+      "owner_id": "user_admin1",
+      "created_at": "2026-11-06T13:00:00.000Z",
+      "updated_at": "2026-11-10T09:45:00.000Z"
+    }
+  ],
+  "prefs": {
+    "user_admin1": {
+      "task_view": "list",
+      "theme_mode": "light"
+    }
+  },
+  "access_requests": [],
+  "sticker_packs": [
+    {
+      "id": "pk_work",
+      "name": "Kerja & Memes",
+      "category": "Kerja & Memes",
+      "workspace_id": "global"
+    },
+    {
+      "id": "pk_reactions",
+      "name": "Reactions & Memoji",
+      "category": "Reactions",
+      "workspace_id": "global"
+    },
+    {
+      "id": "pk_creative",
+      "name": "Design & Creative",
+      "category": "Design",
+      "workspace_id": "global"
+    },
+    {
+      "id": "pk_dev",
+      "name": "Tech & Engineering",
+      "category": "Dev",
+      "workspace_id": "global"
+    },
+    {
+      "id": "pk_custom",
+      "name": "Custom Stickers",
+      "category": "Custom",
+      "workspace_id": "user"
+    }
+  ],
+  "stickers": [
+    {
+      "id": "stk_w1",
+      "pack_id": "pk_work",
+      "name": "SIAP MANDAN",
+      "emoji": "🫡",
+      "bg": "#E0F2FE",
+      "category": "Kerja & Memes"
+    },
+    {
+      "id": "stk_w2",
+      "pack_id": "pk_work",
+      "name": "MANTAP!",
+      "emoji": "🔥",
+      "bg": "#FFEDD5",
+      "category": "Kerja & Memes"
+    },
+    {
+      "id": "stk_w3",
+      "pack_id": "pk_work",
+      "name": "NEED REVIEW",
+      "emoji": "👀",
+      "bg": "#FEF3C7",
+      "category": "Kerja & Memes"
+    },
+    {
+      "id": "stk_w4",
+      "pack_id": "pk_work",
+      "name": "APPROVED!",
+      "emoji": "✅",
+      "bg": "#DCFCE7",
+      "category": "Kerja & Memes"
+    },
+    {
+      "id": "stk_w5",
+      "pack_id": "pk_work",
+      "name": "REVISI DIKIT",
+      "emoji": "✏️",
+      "bg": "#F3E8FF",
+      "category": "Kerja & Memes"
+    },
+    {
+      "id": "stk_w6",
+      "pack_id": "pk_work",
+      "name": "GASKEN!",
+      "emoji": "🚀",
+      "bg": "#FCE7F3",
+      "category": "Kerja & Memes"
+    },
+    {
+      "id": "stk_w7",
+      "pack_id": "pk_work",
+      "name": "OTW",
+      "emoji": "🏎️",
+      "bg": "#E0E7FF",
+      "category": "Kerja & Memes"
+    },
+    {
+      "id": "stk_w8",
+      "pack_id": "pk_work",
+      "name": "COPY THAT",
+      "emoji": "👍",
+      "bg": "#DBEAFE",
+      "category": "Kerja & Memes"
+    },
+    {
+      "id": "stk_w9",
+      "pack_id": "pk_work",
+      "name": "URGENT!",
+      "emoji": "🚨",
+      "bg": "#FEE2E2",
+      "category": "Kerja & Memes"
+    },
+    {
+      "id": "stk_w10",
+      "pack_id": "pk_work",
+      "name": "NGOPI DULU",
+      "emoji": "☕",
+      "bg": "#FEF3C7",
+      "category": "Kerja & Memes"
+    },
+    {
+      "id": "stk_w11",
+      "pack_id": "pk_work",
+      "name": "LENGKAP!",
+      "emoji": "💯",
+      "bg": "#DCFCE7",
+      "category": "Kerja & Memes"
+    },
+    {
+      "id": "stk_w12",
+      "pack_id": "pk_work",
+      "name": "DEADLINE",
+      "emoji": "⏰",
+      "bg": "#FEE2E2",
+      "category": "Kerja & Memes"
+    },
+    {
+      "id": "stk_w13",
+      "pack_id": "pk_work",
+      "name": "DONE DEAL",
+      "emoji": "🤝",
+      "bg": "#DCFCE7",
+      "category": "Kerja & Memes"
+    },
+    {
+      "id": "stk_w14",
+      "pack_id": "pk_work",
+      "name": "MENANGIS",
+      "emoji": "😭",
+      "bg": "#E0F2FE",
+      "category": "Kerja & Memes"
+    },
+    {
+      "id": "stk_r1",
+      "pack_id": "pk_reactions",
+      "name": "GREAT JOB",
+      "emoji": "🎉",
+      "bg": "#FEF3C7",
+      "category": "Reactions"
+    },
+    {
+      "id": "stk_r2",
+      "pack_id": "pk_reactions",
+      "name": "BRAVO",
+      "emoji": "👏",
+      "bg": "#DCFCE7",
+      "category": "Reactions"
+    },
+    {
+      "id": "stk_r3",
+      "pack_id": "pk_reactions",
+      "name": "LOVE IT",
+      "emoji": "❤️",
+      "bg": "#FCE7F3",
+      "category": "Reactions"
+    },
+    {
+      "id": "stk_r4",
+      "pack_id": "pk_reactions",
+      "name": "BRILLIANT",
+      "emoji": "💡",
+      "bg": "#FEF3C7",
+      "category": "Reactions"
+    },
+    {
+      "id": "stk_r5",
+      "pack_id": "pk_reactions",
+      "name": "SUPER!",
+      "emoji": "⭐",
+      "bg": "#FFEDD5",
+      "category": "Reactions"
+    },
+    {
+      "id": "stk_r6",
+      "pack_id": "pk_reactions",
+      "name": "MIND BLOWN",
+      "emoji": "🤯",
+      "bg": "#E0E7FF",
+      "category": "Reactions"
+    },
+    {
+      "id": "stk_r7",
+      "pack_id": "pk_reactions",
+      "name": "FIGHTING!",
+      "emoji": "💪",
+      "bg": "#DCFCE7",
+      "category": "Reactions"
+    },
+    {
+      "id": "stk_r8",
+      "pack_id": "pk_reactions",
+      "name": "TARGET!",
+      "emoji": "🎯",
+      "bg": "#FEE2E2",
+      "category": "Reactions"
+    },
+    {
+      "id": "stk_c1",
+      "pack_id": "pk_creative",
+      "name": "PIXEL PERFECT",
+      "emoji": "📐",
+      "bg": "#E0F2FE",
+      "category": "Design"
+    },
+    {
+      "id": "stk_c2",
+      "pack_id": "pk_creative",
+      "name": "DRAFT READY",
+      "emoji": "🎨",
+      "bg": "#F3E8FF",
+      "category": "Design"
+    },
+    {
+      "id": "stk_c3",
+      "pack_id": "pk_creative",
+      "name": "ASSET LOADED",
+      "emoji": "📸",
+      "bg": "#DCFCE7",
+      "category": "Design"
+    },
+    {
+      "id": "stk_c4",
+      "pack_id": "pk_creative",
+      "name": "MAGIC VIBES",
+      "emoji": "✨",
+      "bg": "#FEF3C7",
+      "category": "Design"
+    },
+    {
+      "id": "stk_c5",
+      "pack_id": "pk_creative",
+      "name": "STORYBOARD",
+      "emoji": "🎬",
+      "bg": "#FFEDD5",
+      "category": "Design"
+    },
+    {
+      "id": "stk_c6",
+      "pack_id": "pk_creative",
+      "name": "FEEDBACK?",
+      "emoji": "💬",
+      "bg": "#E0E7FF",
+      "category": "Design"
+    },
+    {
+      "id": "stk_d1",
+      "pack_id": "pk_dev",
+      "name": "SHIP IT!",
+      "emoji": "🚢",
+      "bg": "#E0F2FE",
+      "category": "Dev"
+    },
+    {
+      "id": "stk_d2",
+      "pack_id": "pk_dev",
+      "name": "NO BUG",
+      "emoji": "🐛",
+      "bg": "#DCFCE7",
+      "category": "Dev"
+    },
+    {
+      "id": "stk_d3",
+      "pack_id": "pk_dev",
+      "name": "PASSING QA",
+      "emoji": "🧪",
+      "bg": "#F3E8FF",
+      "category": "Dev"
+    },
+    {
+      "id": "stk_d4",
+      "pack_id": "pk_dev",
+      "name": "BUILD OK",
+      "emoji": "🟢",
+      "bg": "#DCFCE7",
+      "category": "Dev"
+    },
+    {
+      "id": "stk_d5",
+      "pack_id": "pk_dev",
+      "name": "MERGE PR",
+      "emoji": "🔀",
+      "bg": "#E0E7FF",
+      "category": "Dev"
+    },
+    {
+      "id": "stk_d6",
+      "pack_id": "pk_dev",
+      "name": "DEPLOYED!",
+      "emoji": "🚀",
+      "bg": "#FEF3C7",
+      "category": "Dev"
+    }
+  ],
+  "session_user_id": "user_admin1",
+  "prod_clean_v2": true,
+  "org_aligned_v2": true
+}
