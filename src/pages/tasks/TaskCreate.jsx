@@ -20,7 +20,7 @@ const blank = (me, d = {}) => ({
   start_date: "",
   project_id: d?.project_id || "",
   department: me?.department || "",
-  board_id: d?.board_id || "brd_1",
+  board_id: d?.board_id || "brd_div_marketing",
   label_ids: d?.label_ids || [],
   item_type: null,
   link_url: "",
@@ -256,7 +256,7 @@ export default function TaskCreate({ open, onOpenChange, preset, defaults, onCre
       api.get("/boards").then((r) => {
         const list = Array.isArray(r.data) ? r.data : [];
         setBoards(list);
-        setF((x) => ({ ...x, board_id: x.board_id || list[0]?.id || "brd_1" }));
+        setF((x) => ({ ...x, board_id: x.board_id || list[0]?.id || "brd_div_marketing" }));
       }).catch(() => {});
     }
   }, [open]); // eslint-disable-line
@@ -291,7 +291,7 @@ export default function TaskCreate({ open, onOpenChange, preset, defaults, onCre
       const { data } = await api.post("/tasks", {
         ...rest,
         status: f.status || statuses?.[0]?.key || "todo",
-        board_id: f.board_id || boards[0]?.id || "brd_1",
+        board_id: f.board_id || boards[0]?.id || "brd_div_marketing",
         assignee_id: primaryAssigneeId,
         assignee_ids: assigneeIds,
         requestor_ids: reqIds,
@@ -356,7 +356,7 @@ export default function TaskCreate({ open, onOpenChange, preset, defaults, onCre
                 className={inp}
                 data-testid="task-board-select"
               >
-                {!boards.length && <option value="brd_1">General Board</option>}
+                {!boards.length && <option value="brd_div_marketing">Marketing</option>}
                 {boards.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
             </Row>

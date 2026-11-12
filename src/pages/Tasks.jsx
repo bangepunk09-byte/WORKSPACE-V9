@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { CheckSquare, Plus, Search, Download, KanbanSquare, List, GanttChart, CalendarDays, SlidersHorizontal, X, Settings2, Archive, ChevronDown } from "lucide-react";
+import { CheckSquare, Plus, Search, Download, KanbanSquare, List, GanttChart, CalendarDays, SlidersHorizontal, X, Settings2, Archive, ChevronDown, Users, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { api, errMsg, downloadFrom } from "../lib/api";
 import { useApp } from "../context/AppContext";
@@ -12,6 +12,7 @@ import { Timeline, Calendar } from "./tasks/TimelineCalendar";
 import TaskCreate from "./tasks/TaskCreate";
 import TaskDetail from "./tasks/TaskDetail";
 import BoardDialog from "./tasks/BoardDialog";
+import BoardMembersModal from "./tasks/BoardMembersModal";
 import ArchiveView from "./tasks/ArchiveView";
 import AutomationDialog from "./tasks/AutomationDialog";
 import { Upload, Sparkles, FileSpreadsheet } from "lucide-react";
@@ -22,7 +23,14 @@ const sel = "h-10 rounded-full border bg-surface text-sm font-medium text-ink sh
 
 import { INITIAL_TASKS } from "../data/initialTasks";
 
-const DEFAULT_BOARDS = [{ id: "brd_1", name: "Main Board", color: "#2F7DE1", task_count: 28 }];
+export const DEFAULT_BOARDS = [
+  { id: "brd_div_marketing", name: "Marketing", department: "Marketing", color: "#10B981" },
+  { id: "brd_div_sales", name: "Sales", department: "Sales", color: "#F59E0B" },
+  { id: "brd_div_it", name: "IT", department: "IT", color: "#06B6D4" },
+  { id: "brd_div_finance", name: "Finance", department: "Finance", color: "#14B8A6" },
+  { id: "brd_div_legal", name: "Legal", department: "Legal", color: "#6366F1" },
+  { id: "brd_div_hrga", name: "HRGA", department: "HRGA", color: "#F97316" }
+];
 
 export const PRIMARY_SAVED_VIEWS = [
   ["all", "All Tasks"],
@@ -123,20 +131,24 @@ export function parseCSV(text) {
 let GLOBAL_TASKS_CACHE = null;
 
 export function TaskWorkspace({ projectId, compactHeader }) {
-  const { users, labels, statuses, subscribe, prefs, savePrefs, isManager, ws } = useApp();
+  const { me, isAdmin, isManager, users, labels, statuses, subscribe, prefs, savePrefs, ws } = useApp();
   const [params, setParams] = useSearchParams();
   const [boards, setBoards] = useState(() => {
     try {
       const cached = localStorage.getItem("circle_boards_cache");
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const clean = parsed.filter((b) => b && b.id !== "brd_1");
+          if (clean.length > 0) return clean;
+        }
       }
     } catch {}
     return DEFAULT_BOARDS;
   });
   const [boardId, setBoardId] = useState(params.get("board") || "");
   const [editBoard, setEditBoard] = useState(null);
+  const [managingMembersBoard, setManagingMembersBoard] = useState(null);
   const [tasks, setTasks] = useState(() => {
     if (GLOBAL_TASKS_CACHE && Array.isArray(GLOBAL_TASKS_CACHE)) {
       return GLOBAL_TASKS_CACHE;
@@ -215,9 +227,21 @@ export function TaskWorkspace({ projectId, compactHeader }) {
     }
   }).catch(() => {}), []);
   useEffect(() => { loadBoards(); }, [loadBoards]);
-  useEffect(() => subscribe((e) => e.type === "tasks:changed" && loadBoards()), [subscribe, loadBoards]);
+  useEffect(() => subscribe((e) => {
+    if (e.type === "tasks:changed" || e.type === "boards:changed" || e.type === "groups:changed" || e.type === "workspace:updated" || e.type === "org:changed") {
+      loadBoards();
+    }
+  }), [subscribe, loadBoards]);
+  useEffect(() => {
+    if (!boardId && !params.get("board") && boards.length > 0 && me?.department && !isAdmin) {
+      const myBoard = boards.find(
+        (b) => b.department && b.department.toLowerCase() === me.department.toLowerCase()
+      );
+      if (myBoard) setBoardId(myBoard.id);
+    }
+  }, [boards, me?.department, isAdmin, boardId]);
   const pickBoard = (id) => { setBoardId(id); setSelected([]); if (id) params.set("board", id); else params.delete("board"); setParams(params); };
-  const newTask = (extra = {}) => setCreate({ board_id: boardId || boards?.[0]?.id || "brd_1", ...extra });
+  const newTask = (extra = {}) => setCreate({ board_id: boardId || boards?.[0]?.id || "brd_div_marketing", ...extra });
   const load = useCallback(() => {
     return api.get("/tasks", { params: query() }).then((r) => {
       if (Array.isArray(r.data)) {
@@ -354,40 +378,60 @@ export function TaskWorkspace({ projectId, compactHeader }) {
         />
       )}
 
-      {/* Unified Toolbar: Board Dropdown, Search, Filter, Columns (Left) + View Switcher (Right) */}
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        {/* Left Group: Board Dropdown + Search + Filter + Columns */}
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {!projectId && (
-            <div className="flex items-center gap-1.5">
-              <select
-                value={boardId}
-                onChange={(e) => pickBoard(e.target.value)}
-                className="h-10 rounded-full border bg-surface px-4 text-xs sm:text-sm font-semibold text-ink shadow-xs outline-none hover:bg-surface2 cursor-pointer transition-all"
-                data-testid="board-dropdown-select"
-              >
-                <option value="">Semua Board</option>
-                {boards.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name} ({b.task_count || 0})
-                  </option>
-                ))}
-              </select>
-              {isManager && (
-                <button
-                  onClick={() => setEditBoard({})}
-                  className="flex h-10 w-10 items-center justify-center rounded-full border bg-surface text-brand hover:bg-brand/10 transition-colors shrink-0 shadow-xs"
-                  title="Buat Board Baru"
-                  data-testid="board-new-btn"
-                >
-                  <Plus size={16} />
-                </button>
-              )}
-            </div>
-          )}
+      {managingMembersBoard && (
+        <BoardMembersModal
+          board={managingMembersBoard}
+          onClose={() => setManagingMembersBoard(null)}
+          onUpdated={() => {
+            loadBoards();
+            load();
+          }}
+        />
+      )}
 
-          <div className="relative flex h-10 min-w-[200px] flex-1 sm:w-64 sm:flex-none items-center rounded-full border bg-surface px-4 shadow-xs transition-all focus-within:ring-2 focus-within:ring-brand/20 focus-within:border-brand">
-            <Search size={16} className="text-sub mr-2 shrink-0" />
+      {/* Unified Toolbar: Board Dropdown, Search, Filter, Columns (Left) + View Switcher (Right) */}
+      <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+        {/* Left Group: Board Dropdown + Search + Filter + Columns */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {!projectId && (() => {
+            const currentBoard = boards.find((b) => b.id === boardId);
+            return (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <select
+                  value={boardId}
+                  onChange={(e) => pickBoard(e.target.value)}
+                  className="h-10 max-w-[180px] sm:max-w-[220px] truncate rounded-full border bg-surface px-3.5 text-xs sm:text-sm font-semibold text-ink shadow-xs outline-none hover:bg-surface2 cursor-pointer transition-all"
+                  data-testid="board-dropdown-select"
+                >
+                  <option value="">Semua Board</option>
+                  {boards.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} ({b.task_count || 0})
+                    </option>
+                  ))}
+                </select>
+
+                {currentBoard && (
+                  <button
+                    type="button"
+                    onClick={() => setManagingMembersBoard(currentBoard)}
+                    className="flex h-10 items-center gap-1.5 rounded-full border bg-surface px-3 text-xs sm:text-sm font-semibold text-ink shadow-xs hover:bg-surface2 transition-all cursor-pointer shrink-0"
+                    title="Anggota & Undang Orang ke Board"
+                    data-testid="board-manage-members-btn"
+                  >
+                    <Users size={14} className="text-brand shrink-0" />
+                    <span className="hidden sm:inline">Anggota</span>
+                    <span className="rounded-full bg-brand/10 text-brand px-1.5 py-0.2 text-[10px] font-bold">
+                      + Invite
+                    </span>
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+
+          <div className="relative flex h-10 w-44 sm:w-56 md:w-64 shrink-0 items-center rounded-full border bg-surface px-3.5 shadow-xs transition-all focus-within:ring-2 focus-within:ring-brand/20 focus-within:border-brand">
+            <Search size={15} className="text-sub mr-2 shrink-0" />
             <input
               value={f.q}
               onChange={(e) => setF({ ...f, q: e.target.value })}
@@ -403,15 +447,16 @@ export function TaskWorkspace({ projectId, compactHeader }) {
           </div>
 
           <button
+            type="button"
             onClick={() => setShowFilters(!showFilters)}
-            className={`flex h-10 items-center gap-2 rounded-full border px-4 text-xs sm:text-sm font-semibold transition-all shadow-xs ${
+            className={`flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-xs sm:text-sm font-semibold transition-all shadow-xs ${
               showFilters || active > 0
                 ? "bg-brand text-white border-transparent font-bold"
                 : "bg-surface text-sub hover:text-ink hover:bg-surface2"
             }`}
             data-testid="mobile-filters-btn"
           >
-            <SlidersHorizontal size={15} />
+            <SlidersHorizontal size={14} />
             <span>Filter</span>
             {active > 0 && (
               <span className={`flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[11px] font-extrabold ${
@@ -423,8 +468,37 @@ export function TaskWorkspace({ projectId, compactHeader }) {
           </button>
 
           {view === "list" && (() => {
-            const allCols = [...COLS, ...(ws.task_fields || []).map((field) => [field.key, field.name, 10])];
-            const sheetCols = [...((prefs.task_sheet?.order || [])).map((k) => allCols.find((c) => c[0] === k)).filter(Boolean), ...allCols.filter((c) => !((prefs.task_sheet?.order || [])).includes(c[0]))];
+            const standardKeys = new Set(COLS.map((c) => c[0].toLowerCase()));
+            const standardNames = new Set(COLS.map((c) => c[1].toLowerCase()));
+            const customCols = (ws.task_fields || [])
+              .filter((f) => {
+                const k = (f.key || f.name || "").toLowerCase();
+                const n = (f.name || "").toLowerCase();
+                return n !== "estimate" && !standardKeys.has(k) && !standardNames.has(n);
+              })
+              .map((field) => [field.key || field.name, field.name, 10]);
+
+            const rawCols = [...COLS, ...customCols];
+            const seen = new Set();
+            const allCols = rawCols.filter(([k]) => {
+              if (seen.has(k)) return false;
+              seen.add(k);
+              return true;
+            });
+
+            const targetPrefix = ["assignee_id", "label_ids", "item_type", "title", "priority", "link_url", "status"];
+            const isOutdatedOrder =
+              !prefs.task_sheet?.order ||
+              prefs.task_sheet.order.includes("deadline_compliance") ||
+              prefs.task_sheet.order.indexOf("link_url") > prefs.task_sheet.order.indexOf("status") ||
+              prefs.task_sheet.order.indexOf("priority") > prefs.task_sheet.order.indexOf("link_url") ||
+              prefs.task_sheet.order.filter((x) => x === "priority").length > 1;
+
+            const effectiveOrder = isOutdatedOrder ? targetPrefix : prefs.task_sheet.order;
+            const sheetCols = [
+              ...(effectiveOrder || []).map((k) => allCols.find((c) => c[0] === k)).filter(Boolean),
+              ...allCols.filter((c) => !(effectiveOrder || []).includes(c[0]))
+            ];
             return <ColumnMenu cols={sheetCols} cfg={prefs.task_sheet || { hidden: DEFAULT_HIDDEN }} save={(c) => savePrefs({ task_sheet: c })} />;
           })()}
         </div>
@@ -543,7 +617,21 @@ export function TaskWorkspace({ projectId, compactHeader }) {
       )}
         <div className="min-h-[350px]">
           {(view === "archive" || saved === "archived") ? <ArchiveView tasks={tasks} onOpen={open} reload={load} projects={projects} />
-          : view === "board" ? <Board tasks={tasks} onOpen={open} onNew={(status) => newTask({ status })} reload={load} onMoveTask={updateTaskLocally} />
+          : view === "board" ? (
+            <Board
+              tasks={tasks}
+              board={boards.find((b) => b.id === boardId)}
+              onInvite={() => {
+                const b = boards.find((x) => x.id === boardId);
+                if (b) setManagingMembersBoard(b);
+                else if (boards.length > 0) setManagingMembersBoard(boards[0]);
+              }}
+              onOpen={open}
+              onNew={(status) => newTask({ status })}
+              reload={load}
+              onMoveTask={updateTaskLocally}
+            />
+          )
           : view === "list" ? <ListView tasks={tasks} projects={projects} onOpen={open} selected={selected} setSelected={setSelected} reload={load} groupBy={groupBy} boardId={boardId} />
           : view === "timeline" ? <Timeline tasks={tasks} onOpen={open} /> : <Calendar tasks={tasks} onOpen={open} />}
         </div>

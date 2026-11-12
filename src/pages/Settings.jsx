@@ -147,16 +147,19 @@ function NotificationPrefs() {
 }
 
 function CopywritingSettings() {
-  const { prefs, savePrefs, t } = useApp();
-  const custom = prefs.custom_copywriting || {};
+  const { prefs, savePrefs, ws, reloadWs, isAdmin } = useApp();
+  const custom = ws?.custom_copywriting || prefs.custom_copywriting || {};
   const [searchTerm, setSearchTerm] = useState("");
   const [draft, setDraft] = useState({ ...custom });
   const [saving, setSaving] = useState(false);
+  const [newKey, setNewKey] = useState("");
+  const [newVal, setNewVal] = useState("");
+  const [showAddKey, setShowAddKey] = useState(false);
 
-  // Sync draft if prefs change
+  // Sync draft if workspace or prefs change
   useEffect(() => {
-    setDraft({ ...(prefs.custom_copywriting || {}) });
-  }, [prefs.custom_copywriting]);
+    setDraft({ ...(ws?.custom_copywriting || prefs.custom_copywriting || {}) });
+  }, [ws?.custom_copywriting, prefs.custom_copywriting]);
 
   const handleDownloadCsv = () => {
     const csvContent = generateCopywritingCsv(draft);
@@ -183,6 +186,10 @@ function CopywritingSettings() {
       }
       const updated = { ...draft, ...parsed };
       setDraft(updated);
+      if (isAdmin) {
+        await api.put("/workspace", { custom_copywriting: updated });
+        reloadWs();
+      }
       await savePrefs({ custom_copywriting: updated });
       toast.success(`Berhasil mengimpor ${keysCount} copywriting dari CSV! 🎉`);
     } catch (err) {
@@ -195,8 +202,12 @@ function CopywritingSettings() {
   const handleSaveDraft = async () => {
     setSaving(true);
     try {
+      if (isAdmin) {
+        await api.put("/workspace", { custom_copywriting: draft });
+        reloadWs();
+      }
       await savePrefs({ custom_copywriting: draft });
-      toast.success("Copywriting berhasil disimpan!");
+      toast.success(isAdmin ? "Copywriting berhasil disimpan ke seluruh workspace! ✨" : "Copywriting berhasil disimpan!");
     } catch (err) {
       toast.error("Gagal menyimpan copywriting");
     } finally {
@@ -208,6 +219,10 @@ function CopywritingSettings() {
     if (!window.confirm("Kembalikan semua copywriting ke teks default aplikasi?")) return;
     try {
       setDraft({});
+      if (isAdmin) {
+        await api.put("/workspace", { custom_copywriting: {} });
+        reloadWs();
+      }
       await savePrefs({ custom_copywriting: {} });
       toast.success("Copywriting dikembalikan ke default!");
     } catch (err) {
@@ -215,11 +230,22 @@ function CopywritingSettings() {
     }
   };
 
-  const allKeys = Object.keys(DEFAULT_COPYWRITING);
+  const handleAddNewKey = () => {
+    const k = newKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (!k) return toast.error("Key copywriting tidak boleh kosong");
+    if (!newVal.trim()) return toast.error("Teks copywriting tidak boleh kosong");
+    setDraft((prev) => ({ ...prev, [k]: newVal.trim() }));
+    setNewKey("");
+    setNewVal("");
+    setShowAddKey(false);
+    toast.success(`Key '${k}' ditambahkan ke draft. Klik Simpan Copywriting.`);
+  };
+
+  const allKeys = Array.from(new Set([...Object.keys(DEFAULT_COPYWRITING), ...Object.keys(draft)]));
   const filteredKeys = allKeys.filter(
     (k) =>
       k.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      DEFAULT_COPYWRITING[k].toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (DEFAULT_COPYWRITING[k] || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (draft[k] || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -227,9 +253,17 @@ function CopywritingSettings() {
 
   return (
     <Card title="Custom Copywriting & Teks Aplikasi" testid="copywriting-card">
-      <p className="text-xs text-sub mb-4">
-        Sesuaikan semua label, tombol, salam, dan teks copywriting di seluruh aplikasi CIRCLE. Anda dapat mengedit langsung atau mengunggah file CSV.
-      </p>
+      <div className="mb-4 space-y-2">
+        <p className="text-xs text-sub">
+          Sesuaikan semua label kolom tabel (Name, Brand, Item, Title, Priority, Status, Status Tenggat), tombol, salam, dan teks copywriting di seluruh aplikasi CIRCLE.
+        </p>
+        {isAdmin && (
+          <div className="flex items-center gap-2 rounded-xl bg-brand/10 border border-brand/20 px-3 py-2 text-xs font-medium text-brand">
+            <span>🛡️</span>
+            <span>Sebagai <strong>Super Admin</strong>, semua perubahan copywriting yang Anda simpan akan otomatis aktif untuk seluruh pengguna di workspace.</span>
+          </div>
+        )}
+      </div>
 
       {/* Action Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-surface2/60 border mb-4">
@@ -245,6 +279,13 @@ function CopywritingSettings() {
             data-testid="download-copywriting-template"
           >
             <Download size={14} /> Download Template CSV
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAddKey((prev) => !prev)}
+            className="inline-flex items-center gap-1.5 rounded-xl border bg-surface px-3 py-2 text-xs font-semibold text-ink hover:bg-surface2 transition-colors shadow-xs"
+          >
+            <Plus size={14} /> Tambah Key Baru
           </button>
         </div>
 
@@ -269,6 +310,39 @@ function CopywritingSettings() {
           </button>
         </div>
       </div>
+
+      {showAddKey && (
+        <div className="p-3.5 mb-4 rounded-2xl border bg-surface2/40 flex flex-col sm:flex-row items-center gap-2">
+          <input
+            value={newKey}
+            onChange={(e) => setNewKey(e.target.value)}
+            placeholder="Key baru (contoh: col_brand)"
+            className="h-8 flex-1 w-full rounded-xl border bg-surface px-2.5 text-xs font-mono outline-none focus:ring-1 focus:ring-brand"
+          />
+          <input
+            value={newVal}
+            onChange={(e) => setNewVal(e.target.value)}
+            placeholder="Teks copywriting baru"
+            className="h-8 flex-1 w-full rounded-xl border bg-surface px-2.5 text-xs outline-none focus:ring-1 focus:ring-brand"
+          />
+          <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end">
+            <button
+              type="button"
+              onClick={handleAddNewKey}
+              className="rounded-xl bg-brand px-3 py-1.5 text-xs font-bold text-white hover:opacity-90 transition-opacity"
+            >
+              Tambah
+            </button>
+            <button
+              type="button"
+              onClick={() => { setShowAddKey(false); setNewKey(""); setNewVal(""); }}
+              className="rounded-xl border bg-surface px-2.5 py-1.5 text-xs text-sub hover:bg-surface2"
+            >
+              Batal
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Search Filter */}
       <div className="relative mb-3">

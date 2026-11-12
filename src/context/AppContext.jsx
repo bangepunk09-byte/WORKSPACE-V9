@@ -416,7 +416,7 @@ export function AppProvider({ children }) {
       isManager: ["super_admin", "workspace_admin", "department_manager", "project_manager"].includes(me?.role),
       isDemo: !!me?.is_demo,
       lang: "en",
-      t: (key) => getTranslation(key, prefs?.custom_copywriting),
+      t: (key, fallback) => getTranslation(key, ws?.custom_copywriting || prefs?.custom_copywriting, fallback),
       themeDraft, setThemeDraft,
       reloadUsers: () => api.get("/users").then((r) => {
         if (Array.isArray(r.data)) {

@@ -119,7 +119,7 @@ async function startServer() {
       login_image_file_id: "default_login_bg",
       theme: { primary: "#2F7DE1", mode: "light" },
       task_statuses: ["todo", "in_progress", "in_review", "done"],
-      task_fields: [{ name: "priority" }],
+      task_fields: [],
       divisions: ["Engineering", "Product", "Operations", "Design"],
       item_types: [],
     },
@@ -151,7 +151,12 @@ async function startServer() {
     tasks: [],
     projects: [],
     boards: [
-      { id: "brd_1", name: "Main Board", description: "Main tasks" }
+      { id: "brd_div_marketing", name: "Marketing", department: "Marketing", color: "#10B981" },
+      { id: "brd_div_sales", name: "Sales", department: "Sales", color: "#F59E0B" },
+      { id: "brd_div_it", name: "IT", department: "IT", color: "#06B6D4" },
+      { id: "brd_div_finance", name: "Finance", department: "Finance", color: "#14B8A6" },
+      { id: "brd_div_legal", name: "Legal", department: "Legal", color: "#6366F1" },
+      { id: "brd_div_hrga", name: "HRGA", department: "HRGA", color: "#F97316" }
     ],
     conversations: [],
     groups: [],
@@ -251,6 +256,13 @@ async function startServer() {
   // Ensure access_requests array exists
   if (!Array.isArray(db.access_requests)) {
     db.access_requests = [];
+  }
+
+  // Ensure no duplicate priority in task_fields
+  if (Array.isArray(db.workspace?.task_fields)) {
+    db.workspace.task_fields = db.workspace.task_fields.filter(
+      (f: any) => f?.name?.toLowerCase() !== "priority" && f?.name?.toLowerCase() !== "estimate"
+    );
   }
 
   // Ensure Circle Assistant Bot user exists
@@ -424,27 +436,21 @@ async function startServer() {
     saveDbToFile();
   }
 
-  // Ensure default boards have department and all human workspace users in member_ids
-  const humanUserIds = (db.users || [])
-    .filter((u: any) => !u.is_bot && u.role !== "assistant" && u.user_id !== CIRCLE_BOT_ID)
-    .map((u: any) => u.user_id);
-
+  // Initialize boards without forcing all users into every board (division access is automatic)
   if (Array.isArray(db.boards)) {
     db.boards.forEach((b: any) => {
-      if (!b.department) b.department = "Semua Divisi";
-      const existingMembers = Array.isArray(b.member_ids)
-        ? b.member_ids.filter((id: string) => id !== CIRCLE_BOT_ID && humanUserIds.includes(id))
-        : [];
-      b.member_ids = Array.from(new Set([...existingMembers, ...humanUserIds]));
+      if (!Array.isArray(b.invited_member_ids)) b.invited_member_ids = [];
+      b.invited_member_ids = b.invited_member_ids.filter((id: string) => id !== CIRCLE_BOT_ID);
+      b.member_ids = [...b.invited_member_ids];
     });
   }
 
   // Ensure all tasks have valid status, board_id, and synced assignee_ids
   if (Array.isArray(db.tasks)) {
-    const defaultBoardId = db.boards?.[0]?.id || "brd_1";
+    const defaultBoardId = db.boards?.[0]?.id || "brd_div_marketing";
     db.tasks.forEach((t: any) => {
       if (!t.status) t.status = "todo";
-      if (!t.board_id) t.board_id = defaultBoardId;
+      if (!t.board_id || t.board_id === "brd_1") t.board_id = defaultBoardId;
       if (!t.priority) t.priority = "medium";
       let aIds = Array.isArray(t.assignee_ids) ? [...t.assignee_ids] : [];
       if (t.assignee_id && !aIds.includes(t.assignee_id)) aIds.unshift(t.assignee_id);
@@ -955,6 +961,145 @@ async function startServer() {
         c.member_count = g.member_ids.length;
       }
     });
+
+    // Automatically sync boards whenever workspace divisions change
+    syncDivisionsToBoards(cleaned);
+    try { broadcast({ type: "boards:changed" }); } catch {}
+    try { broadcast({ type: "tasks:changed" }); } catch {}
+  }
+
+  const DIVISION_BOARD_COLORS: Record<string, string> = {
+    Management: "#FF5364",
+    Marketing: "#10B981",
+    Sales: "#F59E0B",
+    IT: "#06B6D4",
+    Finance: "#14B8A6",
+    Legal: "#6366F1",
+    HRGA: "#F97316"
+  };
+
+  function syncDivisionsToBoards(divisionsList?: string[]) {
+    if (!Array.isArray(db.boards)) db.boards = [];
+    const baseDivs = Array.isArray(divisionsList) && divisionsList.length > 0
+      ? divisionsList
+      : (Array.isArray(db.workspace?.divisions) && db.workspace.divisions.length > 0
+          ? db.workspace.divisions
+          : DEFAULT_ALIGNED_DIVISIONS);
+
+    const divisions: string[] = Array.from(new Set(baseDivs.map((d: any) => String(d || "").trim()).filter(Boolean)));
+
+    // Ensure all official department groups from Groups are registered as division boards
+    (db.groups || []).forEach((g: any) => {
+      if (g.group_type === "department" || String(g.id || "").startsWith("group_official_")) {
+        const cleanG = String(g.name || "").trim();
+        if (cleanG && !divisions.some((d) => d.toLowerCase() === cleanG.toLowerCase())) {
+          divisions.push(cleanG);
+        }
+      }
+    });
+
+    const activeDivSet = new Set(divisions.map((d) => d.toLowerCase()));
+
+    // Clean up boards whose department no longer exists in divisions
+    db.boards = db.boards.filter((b: any) => {
+      if (b.id === "brd_1") return false;
+      if (!b.department) return true; // keep custom project boards
+      return activeDivSet.has(b.department.toLowerCase());
+    });
+
+    divisions.forEach((divName: string, idx: number) => {
+      const cleanDiv = String(divName || "").trim();
+      if (!cleanDiv) return;
+      const lowerDiv = cleanDiv.toLowerCase();
+      const slug = lowerDiv.replace(/[^a-z0-9]+/g, "_");
+
+      let b = db.boards.find((x: any) =>
+        (x.department && x.department.toLowerCase() === lowerDiv) ||
+        (x.id === `brd_div_${slug}`) ||
+        (x.name && x.name.toLowerCase() === lowerDiv) ||
+        (x.name && x.name.toLowerCase() === `board ${lowerDiv}`)
+      );
+
+      const color = DIVISION_BOARD_COLORS[cleanDiv] || ["#10B981", "#F59E0B", "#06B6D4", "#14B8A6", "#6366F1", "#F97316", "#3B82F6", "#8B5CF6"][idx % 8];
+
+      if (b) {
+        b.id = `brd_div_${slug}`;
+        b.department = cleanDiv;
+        b.name = cleanDiv; // Matches group name in gambar 1 (Marketing, Sales, IT, etc.)
+        b.color = b.color || color;
+        b.invited_member_ids = Array.isArray(b.invited_member_ids) ? b.invited_member_ids : [];
+        b.member_ids = Array.isArray(b.member_ids) ? b.member_ids : [];
+      } else {
+        b = {
+          id: `brd_div_${slug}`,
+          name: cleanDiv,
+          description: `Official board untuk divisi ${cleanDiv}`,
+          department: cleanDiv,
+          color,
+          invited_member_ids: [],
+          member_ids: [],
+          created_at: new Date().toISOString()
+        };
+        db.boards.push(b);
+      }
+    });
+
+    // Remap legacy generic "brd_1" tasks to division boards and remove brd_1 completely
+    const brd1Tasks = (db.tasks || []).filter((t: any) => t.board_id === "brd_1" || !t.board_id);
+    if (brd1Tasks.length > 0) {
+      brd1Tasks.forEach((t: any) => {
+        const assignee = (db.users || []).find((u: any) => u.user_id === t.assignee_id);
+        const dept = t.department || assignee?.department || "Marketing";
+        const deptSlug = dept.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+        const targetBoard = db.boards.find(
+          (x: any) => x.id === `brd_div_${deptSlug}` || (x.department && x.department.toLowerCase() === dept.toLowerCase())
+        );
+        t.board_id = targetBoard ? targetBoard.id : (db.boards[0]?.id || "brd_div_marketing");
+        if (!t.department && targetBoard?.department) t.department = targetBoard.department;
+      });
+    }
+    db.boards = db.boards.filter((x: any) => x.id !== "brd_1");
+
+    // Deduplicate boards by id
+    const seenIds = new Set<string>();
+    db.boards = db.boards.filter((b: any) => {
+      if (seenIds.has(b.id)) return false;
+      seenIds.add(b.id);
+      return true;
+    });
+  }
+
+  function isTaskAccessible(t: any, user: any): boolean {
+    if (!user) return false;
+    // Super Admin & Workspace Admin have unrestricted access
+    if (user.role === "super_admin" || user.role === "workspace_admin") return true;
+
+    const userDept = String(user.department || "").trim().toLowerCase();
+
+    // Direct task assignment or involvement
+    if (t.assignee_id === user.user_id || (Array.isArray(t.assignee_ids) && t.assignee_ids.includes(user.user_id))) return true;
+    if (t.created_by === user.user_id || (Array.isArray(t.requestor_ids) && t.requestor_ids.includes(user.user_id))) return true;
+    if (Array.isArray(t.collaborator_ids) && t.collaborator_ids.includes(user.user_id)) return true;
+    if (Array.isArray(t.checkpoints) && t.checkpoints.some((c: any) => c && c.assignee_id === user.user_id)) return true;
+
+    // Check board permission
+    if (t.board_id) {
+      const board = db.boards?.find((b: any) => b.id === t.board_id);
+      if (board) {
+        const boardDept = String(board.department || "").trim().toLowerCase();
+        // 1. Division member automatic access
+        if (userDept && boardDept === userDept) return true;
+        // 2. Explicitly invited cross-division collaborator
+        if (Array.isArray(board.invited_member_ids) && board.invited_member_ids.includes(user.user_id)) return true;
+        if (board.created_by === user.user_id) return true;
+        return false;
+      }
+    }
+
+    // Fallback: task department match
+    if (t.department && userDept && String(t.department).trim().toLowerCase() === userDept) return true;
+
+    return false;
   }
 
   // Align workspace divisions, org_units, and official groups with the active divisions
@@ -995,6 +1140,7 @@ async function startServer() {
     syncDivisionsToOrgUnits(db.workspace.divisions || DEFAULT_ALIGNED_DIVISIONS, { removeMissing: true });
     (db.users || []).forEach((u: any) => syncUserDivisionAndGroupMembership(u));
   }
+  syncDivisionsToBoards(db.workspace.divisions);
 
   if (!Array.isArray(db.drive_shortcuts) || db.drive_shortcuts.length === 0) {
     db.drive_shortcuts = [...INITIAL_DRIVE_SHORTCUTS];
@@ -2164,21 +2310,28 @@ async function startServer() {
       );
     }
 
-    // Access control: Non-super_admin users only see tasks from accessible boards or tasks assigned to them
-    const user = currentSessionUser;
-    if (user && user.role !== "super_admin" && user.role !== "workspace_admin") {
-      const accessibleBoardIds = new Set(
-        (db.boards || [])
-          .filter((b: any) => {
-            if (!b.department || b.department === "Semua Divisi" || b.department === "General" || b.department === "All") return true;
-            if (user.department && b.department.toLowerCase() === user.department.toLowerCase()) return true;
-            if (Array.isArray(b.member_ids) && b.member_ids.includes(user.user_id)) return true;
-            return false;
-          })
-          .map((b: any) => b.id)
-      );
-      list = list.filter((t: any) => !t.board_id || accessibleBoardIds.has(t.board_id) || isTaskAssignedToUser(t, user.user_id));
-    }
+    // Access control: Division-restricted access + invited board members + assigned users
+    const user = getReqUser(req) || currentSessionUser;
+    list = list.filter((t: any) => isTaskAccessible(t, user));
+
+    // Always compute status compliance automatically (if Done after deadline -> Overdue)
+    list.forEach((t: any) => {
+      const isDone = t.status === "done";
+      if (isDone) {
+        if (!t.completed_at) t.completed_at = t.updated_at || new Date().toISOString();
+        if (t.deadline) {
+          t.deadline_compliance = new Date(t.completed_at) > new Date(t.deadline) ? "Overdue" : "On time";
+        } else {
+          t.deadline_compliance = "On time";
+        }
+      } else {
+        if (t.deadline && new Date() > new Date(t.deadline)) {
+          t.deadline_compliance = "Overdue";
+        } else {
+          t.deadline_compliance = "In Progress";
+        }
+      }
+    });
 
     res.json(list);
   });
@@ -2213,11 +2366,17 @@ async function startServer() {
     const resolvedStatus = req.body.status && (validStatuses.length === 0 || validStatuses.includes(req.body.status))
       ? req.body.status
       : (validStatuses[0] || "todo");
-    const resolvedBoardId = req.body.board_id || db.boards?.[0]?.id || "brd_1";
+    const curUser = getReqUser(req) || currentSessionUser;
+    const userDept = curUser?.department || "Marketing";
+    const userDivBoard = db.boards?.find((b: any) => b.department && b.department.toLowerCase() === userDept.toLowerCase());
+    const resolvedBoardId = req.body.board_id || userDivBoard?.id || db.boards?.[0]?.id || "brd_div_marketing";
+    const targetBoard = db.boards?.find((b: any) => b.id === resolvedBoardId);
+    const resolvedDept = req.body.department || targetBoard?.department || userDept || "Marketing";
 
     const t = {
       id: initAct.task_id,
       number_str: taskNum,
+      department: resolvedDept,
       comments: [],
       subtasks: [],
       attachments: [],
@@ -2242,6 +2401,12 @@ async function startServer() {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
+    if (t.status === "done") {
+      if (!t.completed_at) t.completed_at = t.created_at;
+      t.deadline_compliance = t.deadline ? (new Date(t.completed_at) > new Date(t.deadline) ? "Overdue" : "On time") : "On time";
+    } else {
+      t.deadline_compliance = (t.deadline && new Date() > new Date(t.deadline)) ? "Overdue" : "In Progress";
+    }
     if (!Array.isArray(t.activity) || t.activity.length === 0) {
       t.activity = [initAct];
     }
@@ -2325,7 +2490,7 @@ async function startServer() {
         priority: item.priority || "medium",
         assignee_id: (Array.isArray(item.assignee_ids) && item.assignee_ids[0]) || item.assignee_id || currentSessionUser?.user_id || "user_admin1",
         assignee_ids: Array.isArray(item.assignee_ids) && item.assignee_ids.length ? item.assignee_ids : [item.assignee_id || currentSessionUser?.user_id || "user_admin1"],
-        board_id: item.board_id || "brd_1",
+        board_id: item.board_id || db.boards?.[0]?.id || "brd_div_marketing",
         project_id: item.project_id || null,
         label_ids: Array.isArray(item.label_ids) ? item.label_ids : ["lbl_1"],
         deadline: item.deadline || new Date(Date.now() + 86400000 * 3).toISOString(),
@@ -2427,6 +2592,10 @@ async function startServer() {
   app.get("/api/tasks/:id", (req, res) => {
     const t = db.tasks.find((x: any) => x.id === req.params.id);
     if (!t) return res.status(404).json({ detail: "Task not found" });
+    const user = getReqUser(req) || currentSessionUser;
+    if (!isTaskAccessible(t, user)) {
+      return res.status(403).json({ detail: "Akses ditolak. Tugas ini hanya dapat diakses oleh divisi terkait atau anggota terundang." });
+    }
     const board = db.boards?.find((b: any) => b.id === t.board_id) || db.boards?.[0] || null;
     res.json({ ...t, board });
   });
@@ -2434,8 +2603,12 @@ async function startServer() {
   app.patch("/api/tasks/:id", (req, res) => {
     const t = db.tasks.find((x: any) => x.id === req.params.id);
     if (!t) return res.status(404).json({ detail: "Task not found" });
+    const user = getReqUser(req) || currentSessionUser;
+    if (!isTaskAccessible(t, user)) {
+      return res.status(403).json({ detail: "Akses ditolak. Anda tidak memiliki izin untuk mengedit tugas divisi lain." });
+    }
 
-    const actorId = currentSessionUser?.user_id || "user_admin1";
+    const actorId = user?.user_id || "user_admin1";
     const actorName = currentSessionUser?.name || "User";
     const getUserName = (uid: string | null | undefined) => {
       if (!uid) return "Unassigned";
@@ -2853,6 +3026,34 @@ async function startServer() {
     }
 
     const oldStatus = t.status;
+
+    // Strict automatic computation of status compliance:
+    const effectiveDeadline = req.body.deadline !== undefined ? req.body.deadline : t.deadline;
+    const effectiveStatus = req.body.status !== undefined ? req.body.status : t.status;
+
+    if (effectiveStatus === "done") {
+      if (!t.completed_at && !req.body.completed_at) {
+        req.body.completed_at = new Date().toISOString();
+      }
+      const finishTime = new Date(req.body.completed_at || t.completed_at || Date.now());
+      if (effectiveDeadline) {
+        req.body.deadline_compliance = finishTime > new Date(effectiveDeadline) ? "Overdue" : "On time";
+      } else {
+        req.body.deadline_compliance = "On time";
+      }
+      if (req.body.progress === undefined) req.body.progress = 100;
+    } else {
+      if (t.status === "done" && req.body.status !== "done") {
+        t.completed_at = null;
+        req.body.completed_at = null;
+      }
+      if (effectiveDeadline && new Date() > new Date(effectiveDeadline)) {
+        req.body.deadline_compliance = "Overdue";
+      } else {
+        req.body.deadline_compliance = "In Progress";
+      }
+    }
+
     req.body.updated_at = new Date().toISOString();
     Object.assign(t, req.body);
 
@@ -2925,8 +3126,13 @@ async function startServer() {
   });
 
   app.delete("/api/tasks/:id", (req, res) => {
+    const t = db.tasks.find((x: any) => x.id === req.params.id);
+    if (!t) return res.status(404).json({ detail: "Task not found" });
+    const user = getReqUser(req) || currentSessionUser;
+    if (!isTaskAccessible(t, user)) {
+      return res.status(403).json({ detail: "Akses ditolak. Anda tidak memiliki izin untuk menghapus tugas divisi lain." });
+    }
     const idx = db.tasks.findIndex((x: any) => x.id === req.params.id);
-    if (idx === -1) return res.status(404).json({ detail: "Task not found" });
     const deleted = db.tasks.splice(idx, 1)[0];
     saveDbToFile();
     broadcast({ type: "tasks:changed", deleted_id: req.params.id });
@@ -3081,33 +3287,82 @@ async function startServer() {
   });
 
   app.get("/api/boards", (req, res) => {
-    const user = currentSessionUser;
+    syncDivisionsToBoards();
+    const user = getReqUser(req) || currentSessionUser;
     if (!user) return res.json(db.boards);
 
-    // Super Admin & Workspace Admin can see all boards across entire workspace
-    if (user.role === "super_admin" || user.role === "workspace_admin") {
-      return res.json(db.boards);
-    }
-
-    // Employees and other roles:
-    // 1. Boards of their department (b.department === user.department)
-    // 2. Company-wide / General boards (!b.department || b.department === "Semua Divisi" || b.department === "General")
-    // 3. Boards where they have been explicitly invited (b.member_ids && b.member_ids.includes(user.user_id))
-    const accessible = db.boards.filter((b: any) => {
-      if (!b.department || b.department === "Semua Divisi" || b.department === "General" || b.department === "All") return true;
-      if (user.department && b.department.toLowerCase() === user.department.toLowerCase()) return true;
-      if (Array.isArray(b.member_ids) && b.member_ids.includes(user.user_id)) return true;
-      return false;
+    const counts: Record<string, number> = {};
+    (db.tasks || []).forEach((t: any) => {
+      if (t.board_id && !t.archived) {
+        counts[t.board_id] = (counts[t.board_id] || 0) + 1;
+      }
     });
 
+    const userDept = String(user.department || "").trim().toLowerCase();
+    const isSuper = user.role === "super_admin" || user.role === "workspace_admin";
+
+    const enriched = (db.boards || []).map((b: any) => {
+      const boardDept = String(b.department || "").trim().toLowerCase();
+      const isDeptMember = Boolean(userDept && boardDept === userDept);
+      const isInvited = Boolean(Array.isArray(b.invited_member_ids) && b.invited_member_ids.includes(user.user_id));
+      const isCreator = b.created_by === user.user_id;
+
+      const deptMembers = (db.users || []).filter(
+        (u: any) => !u.is_bot && u.department && b.department && u.department.toLowerCase() === b.department.toLowerCase()
+      ).map((u: any) => u.user_id);
+      const invitedMembers = Array.isArray(b.invited_member_ids) ? b.invited_member_ids : [];
+      const totalMemberIds = Array.from(new Set([...deptMembers, ...invitedMembers]));
+
+      return {
+        ...b,
+        task_count: counts[b.id] || 0,
+        dept_members_count: deptMembers.length,
+        invited_members_count: invitedMembers.length,
+        member_ids: totalMemberIds,
+        is_dept_member: isDeptMember,
+        is_invited: isInvited,
+        is_accessible: isSuper || isDeptMember || isInvited || isCreator
+      };
+    });
+
+    if (isSuper) {
+      return res.json(enriched);
+    }
+
+    const accessible = enriched.filter((b: any) => b.is_accessible);
     res.json(accessible);
   });
 
+  app.get("/api/boards/:id/members", (req, res) => {
+    const b = db.boards.find((x: any) => x.id === req.params.id);
+    if (!b) return res.status(404).json({ detail: "Board not found" });
+
+    const cleanDept = String(b.department || "").trim().toLowerCase();
+    const deptUsers = (db.users || []).filter((u: any) => {
+      if (u.is_bot || u.role === "assistant" || u.user_id === CIRCLE_BOT_ID) return false;
+      return String(u.department || "").trim().toLowerCase() === cleanDept;
+    });
+
+    const invitedIds = Array.isArray(b.invited_member_ids) ? b.invited_member_ids : [];
+    const invitedUsers = (db.users || []).filter((u: any) => invitedIds.includes(u.user_id));
+
+    res.json({
+      board_id: b.id,
+      board_name: b.name,
+      department: b.department,
+      color: b.color,
+      dept_users: deptUsers,
+      invited_users: invitedUsers,
+      total_count: deptUsers.length + invitedUsers.length
+    });
+  });
+
   app.post("/api/boards", (req, res) => {
-    const user = currentSessionUser;
+    const user = getReqUser(req) || currentSessionUser;
     const b = {
       id: `brd_${Date.now()}`,
       department: req.body.department || user?.department || "Semua Divisi",
+      invited_member_ids: req.body.invited_member_ids || [],
       member_ids: req.body.member_ids || (user ? [user.user_id] : []),
       created_by: user?.user_id,
       ...req.body
@@ -3128,14 +3383,49 @@ async function startServer() {
   });
 
   app.post("/api/boards/:id/invite", (req, res) => {
-    const { user_ids } = req.body;
     const b = db.boards.find((x: any) => x.id === req.params.id);
     if (!b) return res.status(404).json({ detail: "Board not found" });
-    const current = Array.isArray(b.member_ids) ? b.member_ids : [];
-    b.member_ids = [...new Set([...current, ...(user_ids || [])])];
+
+    const rawIds = req.body.user_ids || (req.body.user_id ? [req.body.user_id] : []);
+    const userIdsToAdd = (Array.isArray(rawIds) ? rawIds : [rawIds]).filter((id: string) => Boolean(id) && id !== CIRCLE_BOT_ID);
+
+    b.invited_member_ids = Array.isArray(b.invited_member_ids) ? b.invited_member_ids : [];
+    const beforeCount = b.invited_member_ids.length;
+    b.invited_member_ids = Array.from(new Set([...b.invited_member_ids, ...userIdsToAdd]));
+    b.member_ids = [...b.invited_member_ids];
+
+    const actor = getReqUser(req) || currentSessionUser;
+    userIdsToAdd.forEach((uid: string) => {
+      if (uid && uid !== actor?.user_id) {
+        createNotification({
+          user_id: uid,
+          title: `Diundang ke ${b.name}`,
+          body: `${actor?.name || "Rekan kerja"} mengundang Anda untuk mengakses ${b.name} (${b.department ? `Divisi ${b.department}` : "Workspace"}).`,
+          type: "board_invite",
+          category: "tasks",
+          actor_id: actor?.user_id,
+          link: `/tasks?board=${b.id}`
+        });
+      }
+    });
+
     saveDbToFile();
     broadcast({ type: "tasks:changed" });
-    res.json(b);
+    res.json({ success: true, board: b, invited_member_ids: b.invited_member_ids, newly_invited: b.invited_member_ids.length - beforeCount });
+  });
+
+  app.post("/api/boards/:id/remove-member", (req, res) => {
+    const b = db.boards.find((x: any) => x.id === req.params.id);
+    if (!b) return res.status(404).json({ detail: "Board not found" });
+
+    const targetUid = req.body.user_id;
+    if (targetUid) {
+      b.invited_member_ids = (b.invited_member_ids || []).filter((id: string) => id !== targetUid);
+      b.member_ids = (b.member_ids || []).filter((id: string) => id !== targetUid);
+      saveDbToFile();
+      broadcast({ type: "tasks:changed" });
+    }
+    res.json({ success: true, board: b });
   });
 
   app.delete("/api/boards/:id", (req, res) => {
@@ -3184,12 +3474,23 @@ async function startServer() {
       unread: 0,
       last_message_preview: "",
       last_message_at: new Date().toISOString()
-    };
     db.groups.push(g);
     db.conversations.push(g);
+
+    if (g.group_type === "department") {
+      const gName = String(g.name || "").trim();
+      if (gName && Array.isArray(db.workspace?.divisions)) {
+        if (!db.workspace.divisions.some((d: string) => d.toLowerCase() === gName.toLowerCase())) {
+          db.workspace.divisions.push(gName);
+          syncDivisionsToOrgUnits(db.workspace.divisions, { removeMissing: false });
+        }
+      }
+    }
+
     saveDbToFile();
     broadcast({ type: "groups:changed", data: g });
     broadcast({ type: "conversation:upsert", data: g });
+    broadcast({ type: "boards:changed" });
     res.json(g);
   });
 

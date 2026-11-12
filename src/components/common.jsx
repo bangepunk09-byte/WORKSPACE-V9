@@ -297,3 +297,44 @@ export function GhostButton({ children, className = "", ...p }) {
 
 export const ROLE_NAMES = { super_admin: "Super Admin", workspace_admin: "Workspace Admin", department_manager: "Department Manager", project_manager: "Project Manager", employee: "Employee" };
 
+export function getTaskCompliance(t) {
+  if (!t) return "In Progress";
+
+  const isDone = t.status === "done";
+
+  // Jika task sudah selesai (DONE)
+  if (isDone) {
+    if (!t.deadline) return "On time";
+    const finishedAt = new Date(t.completed_at || t.updated_at || Date.now());
+    const dl = new Date(t.deadline);
+    // Jika selesai melebihi deadline -> OVERDUE, jika tepat waktu/sebelumnya -> ON TIME
+    return finishedAt > dl ? "Overdue" : "On time";
+  }
+
+  // Jika task belum selesai (To Do, In Progress, In Review)
+  if (!t.deadline) return "In Progress";
+  const now = new Date();
+  const dl = new Date(t.deadline);
+  // Jika sekarang sudah melewati deadline -> OVERDUE, jika masih dalam tenggat -> IN PROGRESS
+  return now > dl ? "Overdue" : "In Progress";
+}
+
+export function getTaskComplianceDetail(t) {
+  if (!t) return "";
+  const isDone = t.status === "done";
+  if (isDone) {
+    if (!t.deadline) return "Selesai tepat waktu (tanpa deadline)";
+    const finishedAt = new Date(t.completed_at || t.updated_at || Date.now());
+    const dl = new Date(t.deadline);
+    return finishedAt > dl
+      ? "Selesai melebihi deadline (Overdue)"
+      : "Selesai tepat waktu (On time)";
+  }
+  if (!t.deadline) return "Sedang dikerjakan (tanpa deadline)";
+  const now = new Date();
+  const dl = new Date(t.deadline);
+  return now > dl
+    ? "Belum selesai dan sudah melewati deadline (Overdue)"
+    : "Sedang dikerjakan dalam tenggat waktu (In Progress)";
+}
+

@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { MessageSquare, Paperclip, ListChecks, Plus, AlertTriangle, RotateCw, MoreHorizontal, Users, Archive, Trash2, ExternalLink, Copy } from "lucide-react";
+import { MessageSquare, Paperclip, ListChecks, Plus, AlertTriangle, RotateCw, MoreHorizontal, Users, UserPlus, Archive, Trash2, ExternalLink, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { api, errMsg } from "../../lib/api";
 import { useApp } from "../../context/AppContext";
-import { Avatar, AvatarStack, Labels, PriorityBadge, dueInfo } from "../../components/common";
+import { Avatar, AvatarStack, Labels, PriorityBadge, dueInfo, getTaskCompliance } from "../../components/common";
 import { playSound } from "../../lib/sound";
 import { ItemChip } from "./fields";
 import {
@@ -201,12 +201,32 @@ export function TaskCard({ t, onOpen, done, draggable, onDragStart, onDragEnd, i
         </span>
       </h3>
 
-      {/* Item pill badge */}
-      {t.item_type && (
-        <div className="mb-2">
-          <ItemChip name={t.item_type} small />
-        </div>
-      )}
+      {/* Item pill badge & Status compliance (On time / Overdue) */}
+      <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
+        {t.item_type && <ItemChip name={t.item_type} small />}
+        {(() => {
+          const comp = getTaskCompliance(t);
+          if (!comp) return null;
+          return (
+            <span
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                comp === "On time"
+                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                  : comp === "Overdue"
+                  ? "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
+                  : "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  comp === "On time" ? "bg-emerald-500" : comp === "Overdue" ? "bg-rose-500" : "bg-amber-500"
+                }`}
+              />
+              {comp}
+            </span>
+          );
+        })()}
+      </div>
 
       {/* IP / Brand Labels */}
       {t.label_ids?.length > 0 && (
@@ -271,7 +291,7 @@ export function TaskCard({ t, onOpen, done, draggable, onDragStart, onDragEnd, i
   );
 }
 
-export default function Board({ tasks, onOpen, onNew, reload, onMoveTask }) {
+export default function Board({ tasks, onOpen, onNew, reload, onMoveTask, board, onInvite }) {
   const { statuses } = useApp();
   const [over, setOver] = useState(null);
   const [draggingId, setDraggingId] = useState(null);
@@ -289,18 +309,37 @@ export default function Board({ tasks, onOpen, onNew, reload, onMoveTask }) {
 
     const prevStatus = t.status;
     const targetStatus = statuses.find((s) => s.key === key);
+    const isDone = key === "done" || targetStatus?.is_done;
+    const nowIso = new Date().toISOString();
+
+    let nextCompliance = t.deadline_compliance;
+    if (isDone) {
+      if (t.deadline) {
+        nextCompliance = new Date(nowIso) <= new Date(t.deadline) ? "On time" : "Overdue";
+      } else {
+        nextCompliance = "On time";
+      }
+    } else if (prevStatus === "done") {
+      if (t.deadline && new Date() > new Date(t.deadline)) {
+        nextCompliance = "Overdue";
+      } else {
+        nextCompliance = "In Progress";
+      }
+    }
 
     // 1. Optimistic Update: pindahkan posisi kartu secara instan di UI
     if (onMoveTask) {
       onMoveTask(id, {
         status: key,
-        updated_at: new Date().toISOString(),
-        progress: key === "done" || targetStatus?.is_done ? 100 : t.progress
+        completed_at: isDone ? nowIso : null,
+        deadline_compliance: nextCompliance,
+        updated_at: nowIso,
+        progress: isDone ? 100 : t.progress
       });
     }
 
     // 2. Play sound feedback
-    if (targetStatus?.is_done || key === "done") {
+    if (isDone) {
       playSound("task_done");
     } else {
       playSound("click");
@@ -308,7 +347,7 @@ export default function Board({ tasks, onOpen, onNew, reload, onMoveTask }) {
 
     // 3. Persist to API
     try {
-      await api.patch(`/tasks/${id}`, { status: key });
+      await api.patch(`/tasks/${id}`, { status: key, deadline_compliance: nextCompliance });
       toast.success(`Dipindahkan ke ${targetStatus?.name || key}`);
       // Silent sync with backend
       if (reload) reload(true);
@@ -333,11 +372,58 @@ export default function Board({ tasks, onOpen, onNew, reload, onMoveTask }) {
   };
 
   return (
-    <div
-      className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]"
-      style={{ "--cols": statuses.length }}
-      data-testid="task-board"
-    >
+    <div className="space-y-4">
+      {board && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-surface p-3 sm:px-4 shadow-2xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span
+              className="h-3.5 w-3.5 rounded-full shrink-0 shadow-2xs"
+              style={{ background: board.color || "#10B981" }}
+            />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm sm:text-base font-bold text-ink truncate">
+                  {board.name}
+                </h2>
+                {board.department && (
+                  <span className="rounded-full bg-brand/10 text-brand px-2.5 py-0.5 text-[11px] font-bold">
+                    Divisi {board.department}
+                  </span>
+                )}
+                {board.invited_members_count > 0 && (
+                  <span className="rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 px-2 py-0.5 text-[10px] font-bold">
+                    +{board.invited_members_count} diundang
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {onInvite && (
+              <button
+                type="button"
+                onClick={onInvite}
+                className="flex items-center gap-1.5 rounded-full border bg-surface2/80 hover:bg-surface2 px-3 py-1.5 text-xs font-bold text-ink shadow-2xs transition-all hover:scale-[1.02] cursor-pointer"
+                title="Undang rekan atau atur anggota board"
+                data-testid="board-invite-header-btn"
+              >
+                <UserPlus size={13} className="text-brand" />
+                <span>Undang ke Board</span>
+                <span className="rounded-full bg-brand text-white px-1.5 py-0.2 text-[10px] font-extrabold ml-0.5">
+                  +
+                </span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div
+        className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]"
+        style={{ "--cols": statuses.length }}
+        data-testid="task-board"
+      >
       {statuses.map((s, idx) => {
         const col = tasks.filter((t) => {
           if (t.status === s.key) return true;
@@ -420,6 +506,7 @@ export default function Board({ tasks, onOpen, onNew, reload, onMoveTask }) {
           </div>
         );
       })}
+      </div>
     </div>
   );
 }

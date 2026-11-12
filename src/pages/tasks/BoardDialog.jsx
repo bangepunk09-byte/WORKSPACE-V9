@@ -28,7 +28,8 @@ export default function BoardDialog({ board, onClose, onSaved }) {
   const save = async () => {
     setBusy(true);
     try {
-      const { data } = board?.id ? await api.patch(`/boards/${board.id}`, f) : await api.post("/boards", f);
+      const payload = { ...f, invited_member_ids: f.member_ids };
+      const { data } = board?.id ? await api.patch(`/boards/${board.id}`, payload) : await api.post("/boards", payload);
       toast.success("Board berhasil disimpan");
       onSaved(data);
       onClose();

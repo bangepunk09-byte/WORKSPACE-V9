@@ -66,26 +66,15 @@
       "in_review",
       "done"
     ],
-    "task_fields": [
-      {
-        "name": "priority"
-      },
-      {
-        "name": "estimate"
-      }
-    ],
+    "task_fields": [],
     "divisions": [
       "Management",
-      "Engineering",
-      "Product",
-      "Design",
       "Marketing",
       "Sales",
       "IT",
       "Finance",
       "Legal",
-      "HRGA",
-      "Operations"
+      "HRGA"
     ],
     "item_types": [
       {
@@ -237,7 +226,19 @@
       "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80",
       "picture": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80",
       "org_unit_id": "unit_mgmt",
-      "manager_id": null
+      "manager_id": null,
+      "last_seen_at": "2026-11-12T03:30:40.618Z"
+    },
+    {
+      "user_id": "user_test_mkt",
+      "name": "Rian Marketing",
+      "email": "rian@asliri.id",
+      "department": "Marketing",
+      "role": "member",
+      "status": "active",
+      "org_unit_id": "unit_mkt",
+      "online": true,
+      "last_seen_at": "2026-11-12T03:30:30.662Z"
     }
   ],
   "labels": [
@@ -284,7 +285,20 @@
       "description": "IP / Brand INTERNAL"
     }
   ],
-  "notifications": [],
+  "notifications": [
+    {
+      "id": "notif_1794454239038_a0xzn",
+      "read": false,
+      "created_at": "2026-11-12T03:30:39.038Z",
+      "category": "tasks",
+      "user_id": "user_test_mkt",
+      "title": "Diundang ke Board IT",
+      "body": "Saeful mengundang Anda untuk mengakses Board IT (Divisi IT).",
+      "type": "board_invite",
+      "actor_id": "user_superadmin_saeful",
+      "link": "/tasks?board=brd_div_it"
+    }
+  ],
   "tasks": [],
   "projects": [
     {
@@ -308,41 +322,122 @@
   ],
   "boards": [
     {
-      "id": "brd_1",
-      "name": "Main Board",
-      "description": "Main tasks",
-      "department": "Semua Divisi",
-      "member_ids": [
-        "user_admin1",
-        "user_superadmin_saeful"
-      ]
-    },
-    {
       "id": "brd_1794156613712",
       "department": "Engineering",
-      "member_ids": [
-        "user_admin1",
-        "user_superadmin_saeful"
-      ],
+      "member_ids": [],
       "created_by": "user_admin1",
-      "name": "Sprint Engineering"
+      "name": "Sprint Engineering",
+      "invited_member_ids": []
     },
     {
       "id": "brd_1794156613720",
       "department": "Design",
+      "member_ids": [],
+      "created_by": "user_admin1",
+      "name": "Sprint UI/UX",
+      "invited_member_ids": []
+    },
+    {
+      "id": "brd_div_management",
+      "name": "Board Management",
+      "description": "Tasklist dan koordinasi resmi divisi Management",
+      "department": "Management",
+      "color": "#FF5364",
+      "invited_member_ids": [],
       "member_ids": [
         "user_admin1",
         "user_superadmin_saeful"
       ],
-      "created_by": "user_admin1",
-      "name": "Sprint UI/UX"
+      "created_at": "2026-11-12T03:29:25.303Z"
+    },
+    {
+      "id": "brd_div_marketing",
+      "name": "Board Marketing",
+      "description": "Tasklist dan koordinasi resmi divisi Marketing",
+      "department": "Marketing",
+      "color": "#10B981",
+      "invited_member_ids": [],
+      "member_ids": [
+        "user_test_mkt"
+      ],
+      "created_at": "2026-11-12T03:29:25.303Z"
+    },
+    {
+      "id": "brd_div_sales",
+      "name": "Board Sales",
+      "description": "Tasklist dan koordinasi resmi divisi Sales",
+      "department": "Sales",
+      "color": "#F59E0B",
+      "invited_member_ids": [],
+      "member_ids": [],
+      "created_at": "2026-11-12T03:29:25.303Z"
+    },
+    {
+      "id": "brd_div_it",
+      "name": "Board IT",
+      "description": "Tasklist dan koordinasi resmi divisi IT",
+      "department": "IT",
+      "color": "#06B6D4",
+      "invited_member_ids": [],
+      "member_ids": [],
+      "created_at": "2026-11-12T03:29:25.303Z"
+    },
+    {
+      "id": "brd_div_finance",
+      "name": "Board Finance",
+      "description": "Tasklist dan koordinasi resmi divisi Finance",
+      "department": "Finance",
+      "color": "#14B8A6",
+      "invited_member_ids": [],
+      "member_ids": [],
+      "created_at": "2026-11-12T03:29:25.303Z"
+    },
+    {
+      "id": "brd_div_legal",
+      "name": "Board Legal",
+      "description": "Tasklist dan koordinasi resmi divisi Legal",
+      "department": "Legal",
+      "color": "#6366F1",
+      "invited_member_ids": [],
+      "member_ids": [],
+      "created_at": "2026-11-12T03:29:25.303Z"
+    },
+    {
+      "id": "brd_div_hrga",
+      "name": "Board HRGA",
+      "description": "Tasklist dan koordinasi resmi divisi HRGA",
+      "department": "HRGA",
+      "color": "#F97316",
+      "invited_member_ids": [],
+      "member_ids": [],
+      "created_at": "2026-11-12T03:29:25.303Z"
     }
   ],
   "conversations": [
     {
+      "id": "conv_circle_user_superadmin_saeful",
+      "type": "dm",
+      "name": "Circle",
+      "admin_ids": [
+        "user_circle_assistant"
+      ],
+      "member_ids": [
+        "user_circle_assistant",
+        "user_superadmin_saeful"
+      ],
+      "members": [
+        "user_circle_assistant",
+        "user_superadmin_saeful"
+      ],
+      "unread": 0,
+      "is_member": true,
+      "last_message_preview": "Asisten Workspace & Notifikasi Approval",
+      "last_message_at": "2026-11-12T03:16:12.646Z"
+    },
+    {
       "id": "conv_circle_user_admin1",
       "type": "dm",
-      "name": "Circle (Workspace Assistant)",
+      "name": "Circle",
       "admin_ids": [],
       "members": [
         "user_circle_assistant",
@@ -368,81 +463,21 @@
       "created_at": "2026-11-10T02:50:13.418Z",
       "member_ids": [
         "user_admin1",
-        "user_superadmin_saeful"
+        "user_superadmin_saeful",
+        "user_test_mkt"
       ],
-      "type": "group"
+      "type": "group",
+      "members": [
+        "user_admin1",
+        "user_superadmin_saeful",
+        "user_test_mkt"
+      ],
+      "member_count": 3
     },
     {
       "id": "group_official_sales",
       "name": "Sales",
       "description": "Official channel for Sales department discussions",
-      "group_type": "department",
-      "is_verified": true,
-      "created_at": "2026-11-10T02:50:13.418Z",
-      "member_ids": [
-        "user_admin1",
-        "user_superadmin_saeful"
-      ],
-      "type": "group"
-    },
-    {
-      "id": "group_official_it",
-      "name": "IT",
-      "description": "Official channel for IT department discussions",
-      "group_type": "department",
-      "is_verified": true,
-      "created_at": "2026-11-10T02:50:13.418Z",
-      "member_ids": [
-        "user_admin1",
-        "user_superadmin_saeful"
-      ],
-      "type": "group"
-    },
-    {
-      "id": "group_official_finance",
-      "name": "Finance",
-      "description": "Official channel for Finance department discussions",
-      "group_type": "department",
-      "is_verified": true,
-      "created_at": "2026-11-10T02:50:13.418Z",
-      "member_ids": [
-        "user_admin1",
-        "user_superadmin_saeful"
-      ],
-      "type": "group"
-    },
-    {
-      "id": "group_official_legal",
-      "name": "Legal",
-      "description": "Official channel for Legal department discussions",
-      "group_type": "department",
-      "is_verified": true,
-      "created_at": "2026-11-10T02:50:13.418Z",
-      "member_ids": [
-        "user_admin1",
-        "user_superadmin_saeful"
-      ],
-      "type": "group"
-    },
-    {
-      "id": "group_official_hrga",
-      "name": "HRGA",
-      "description": "Official channel for HRGA department discussions",
-      "group_type": "department",
-      "is_verified": true,
-      "created_at": "2026-11-10T02:50:13.418Z",
-      "member_ids": [
-        "user_admin1",
-        "user_superadmin_saeful"
-      ],
-      "type": "group"
-    }
-  ],
-  "groups": [
-    {
-      "id": "group_official_marketing",
-      "name": "Marketing",
-      "description": "Official channel for Marketing department discussions",
       "group_type": "department",
       "is_verified": true,
       "created_at": "2026-11-10T02:50:13.418Z",
@@ -456,6 +491,100 @@
         "user_superadmin_saeful"
       ],
       "member_count": 2
+    },
+    {
+      "id": "group_official_it",
+      "name": "IT",
+      "description": "Official channel for IT department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "type": "group",
+      "members": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "member_count": 2
+    },
+    {
+      "id": "group_official_finance",
+      "name": "Finance",
+      "description": "Official channel for Finance department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "type": "group",
+      "members": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "member_count": 2
+    },
+    {
+      "id": "group_official_legal",
+      "name": "Legal",
+      "description": "Official channel for Legal department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "type": "group",
+      "members": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "member_count": 2
+    },
+    {
+      "id": "group_official_hrga",
+      "name": "HRGA",
+      "description": "Official channel for HRGA department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "type": "group",
+      "members": [
+        "user_admin1",
+        "user_superadmin_saeful"
+      ],
+      "member_count": 2
+    }
+  ],
+  "groups": [
+    {
+      "id": "group_official_marketing",
+      "name": "Marketing",
+      "description": "Official channel for Marketing department discussions",
+      "group_type": "department",
+      "is_verified": true,
+      "created_at": "2026-11-10T02:50:13.418Z",
+      "member_ids": [
+        "user_admin1",
+        "user_superadmin_saeful",
+        "user_test_mkt"
+      ],
+      "type": "group",
+      "members": [
+        "user_admin1",
+        "user_superadmin_saeful",
+        "user_test_mkt"
+      ],
+      "member_count": 3
     },
     {
       "id": "group_official_sales",
@@ -591,39 +720,6 @@
       "order": 0
     },
     {
-      "id": "unit_eng",
-      "name": "Engineering",
-      "division": "Engineering",
-      "description": "Software Engineering, Architecture & DevOps",
-      "level": "Division",
-      "color": "#3B82F6",
-      "head_id": "user_admin1",
-      "parent_id": "unit_mgmt",
-      "order": 1
-    },
-    {
-      "id": "unit_prod",
-      "name": "Product",
-      "division": "Product",
-      "description": "Product Management, Strategy & Research",
-      "level": "Division",
-      "color": "#8B5CF6",
-      "head_id": "user_superadmin_saeful",
-      "parent_id": "unit_mgmt",
-      "order": 2
-    },
-    {
-      "id": "unit_design",
-      "name": "Design",
-      "division": "Design",
-      "description": "UI/UX Design, Brand & Creative Assets",
-      "level": "Division",
-      "color": "#EC4899",
-      "head_id": null,
-      "parent_id": "unit_mgmt",
-      "order": 3
-    },
-    {
       "id": "unit_mkt",
       "name": "Marketing",
       "division": "Marketing",
@@ -632,7 +728,7 @@
       "color": "#10B981",
       "head_id": null,
       "parent_id": "unit_mgmt",
-      "order": 4
+      "order": 1
     },
     {
       "id": "unit_sales",
@@ -643,7 +739,7 @@
       "color": "#F59E0B",
       "head_id": null,
       "parent_id": "unit_mgmt",
-      "order": 5
+      "order": 2
     },
     {
       "id": "unit_it",
@@ -654,7 +750,7 @@
       "color": "#06B6D4",
       "head_id": "user_admin1",
       "parent_id": "unit_mgmt",
-      "order": 6
+      "order": 3
     },
     {
       "id": "unit_fin",
@@ -665,7 +761,7 @@
       "color": "#14B8A6",
       "head_id": null,
       "parent_id": "unit_mgmt",
-      "order": 7
+      "order": 4
     },
     {
       "id": "unit_legal",
@@ -676,7 +772,7 @@
       "color": "#6366F1",
       "head_id": null,
       "parent_id": "unit_mgmt",
-      "order": 8
+      "order": 5
     },
     {
       "id": "unit_hrga",
@@ -687,25 +783,45 @@
       "color": "#F97316",
       "head_id": null,
       "parent_id": "unit_mgmt",
-      "order": 9
-    },
-    {
-      "id": "unit_ops",
-      "name": "Operations",
-      "division": "Operations",
-      "description": "Business Operations & Quality Assurance",
-      "level": "Division",
-      "color": "#64748B",
-      "head_id": "user_admin1",
-      "parent_id": "unit_mgmt",
-      "order": 10
+      "order": 6
     }
   ],
-  "activity": [],
+  "activity": [
+    {
+      "id": "act_1794454252648_xpmv",
+      "actor_id": "user_superadmin_saeful",
+      "action": "membuat tugas baru \"Client Pitch\"",
+      "task_id": "tsk_1794454252648",
+      "task_title": "Client Pitch",
+      "created_at": "2026-11-12T03:30:52.648Z"
+    },
+    {
+      "id": "act_1794454252641_4wrs",
+      "actor_id": "user_superadmin_saeful",
+      "action": "membuat tugas baru \"Campaign Q4\"",
+      "task_id": "tsk_1794454252641",
+      "task_title": "Campaign Q4",
+      "created_at": "2026-11-12T03:30:52.641Z"
+    }
+  ],
   "reminders": [],
   "polls": [],
   "task_automations": [],
   "audit_logs": [
+    {
+      "id": "log_1794454252648",
+      "actor_id": "user_superadmin_saeful",
+      "actor_name": "Saeful",
+      "action": "membuat tugas baru: TSK-002 - Client Pitch",
+      "created_at": "2026-11-12T03:30:52.648Z"
+    },
+    {
+      "id": "log_1794454252641",
+      "actor_id": "user_superadmin_saeful",
+      "actor_name": "Saeful",
+      "action": "membuat tugas baru: TSK-001 - Campaign Q4",
+      "created_at": "2026-11-12T03:30:52.641Z"
+    },
     {
       "id": "log_1794153776145",
       "actor_id": "user_admin1",
@@ -1197,5 +1313,6 @@
   ],
   "session_user_id": "user_admin1",
   "prod_clean_v2": true,
-  "org_aligned_v2": true
+  "org_aligned_v2": true,
+  "org_aligned_v3": true
 }

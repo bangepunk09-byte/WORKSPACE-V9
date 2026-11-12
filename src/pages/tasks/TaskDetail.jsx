@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { api, errMsg } from "../../lib/api";
 import { useApp } from "../../context/AppContext";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
-import { Avatar, Spinner, fmtDate, rel, dueInfo } from "../../components/common";
+import { Avatar, Spinner, fmtDate, rel, dueInfo, getTaskCompliance, getTaskComplianceDetail } from "../../components/common";
 import RichEditor, { RichView } from "../../components/RichEditor";
 import { inp, UserSelect, MultiUserSelect, PrioritySelect, LabelPicker, ItemPicker, ColorPicker, AttachmentList, useUploader, ListEditor } from "./fields";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
@@ -254,18 +254,40 @@ export default function TaskDetail({ id, onClose, onChanged }) {
                   </Select>
                 </Row>
                 <Row label="Status">
-                  <Select value={t.status} disabled={ro} onValueChange={(val) => patch({ status: val })}>
-                    <SelectTrigger className="w-full bg-surface2 border-slate-200 dark:border-slate-800 rounded-xl" data-testid="task-detail-status">
-                      <SelectValue placeholder="Pilih status..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {statuses.map((s) => (
-                        <SelectItem key={s.key} value={s.key} data-testid={`status-option-${s.key}`}>
-                          {s.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="space-y-1.5 w-full">
+                    <Select value={t.status} disabled={ro} onValueChange={(val) => patch({ status: val })}>
+                      <SelectTrigger className="w-full bg-surface2 border-slate-200 dark:border-slate-800 rounded-xl" data-testid="task-detail-status">
+                        <SelectValue placeholder="Pilih status..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {statuses.map((s) => (
+                          <SelectItem key={s.key} value={s.key} data-testid={`status-option-${s.key}`}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {(() => {
+                      const comp = getTaskCompliance(t);
+                      const detail = getTaskComplianceDetail(t);
+                      if (!comp) return null;
+                      return (
+                        <div className="flex items-center gap-1.5 pt-0.5">
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                            comp === "On time"
+                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                              : comp === "Overdue"
+                              ? "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
+                              : "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                          }`}>
+                            <span className={`h-1.5 w-1.5 rounded-full ${comp === "On time" ? "bg-emerald-500" : comp === "Overdue" ? "bg-rose-500" : "bg-amber-500"}`} />
+                            {comp}
+                          </span>
+                          <span className="text-[11px] text-sub truncate">{detail}</span>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </Row>
 
                 {/* Multi Requestor with Auto Reviewer */}

@@ -62,6 +62,49 @@ export const DEFAULT_COPYWRITING = {
   beranda_reply_btn: "Reply",
   beranda_trending_title: "Trending Hashtags",
 
+  // Task Columns & Headers
+  col_name: "Name",
+  col_brand: "Brand",
+  col_item: "Item",
+  col_title: "Title",
+  col_priority: "Priority",
+  col_status: "Status",
+  col_status_tenggat: "Status Tenggat",
+  col_link: "Link File/Folder",
+  col_number: "ID",
+  col_requestor: "Requestor",
+  col_project: "Project",
+  col_completed: "Completed",
+  col_updated: "Last updated",
+
+  // Compliance Statuses
+  compliance_on_time: "Tepat Waktu",
+  compliance_late: "Terlambat",
+  compliance_in_progress: "Dalam Proses",
+
+  // Table Actions & Dropdowns
+  table_choose_assignee: "Pilih Assignee",
+  table_choose_brand: "Pilih Brand",
+  table_choose_status: "Pilih Status",
+  table_choose_compliance: "Status Tenggat",
+  table_choose_priority: "Pilih Prioritas",
+  table_no_brand: "Tanpa Brand",
+  table_unassigned: "Unassigned",
+  table_add_row: "Tambah baris baru — ketik judul lalu Enter",
+  table_columns_btn: "Columns",
+  table_reset_columns: "Reset columns",
+
+  // Auth / Login / Signup
+  auth_login_tab: "Masuk",
+  auth_signup_tab: "Daftar Akun",
+  auth_email_label: "Email",
+  auth_password_label: "Kata Sandi",
+  auth_name_label: "Nama Lengkap",
+  auth_division_label: "Divisi",
+  auth_submit_login: "Masuk ke Workspace",
+  auth_submit_signup: "Daftar Akun",
+  auth_google_login: "Lanjutkan dengan Google",
+
   // Settings
   settings_title: "Settings",
   settings_copywriting_title: "Custom Copywriting & Text",
@@ -69,11 +112,11 @@ export const DEFAULT_COPYWRITING = {
   settings_saved: "Preferences saved successfully"
 };
 
-export function getTranslation(key, customCopywriting = {}) {
+export function getTranslation(key, customCopywriting = {}, fallback = "") {
   if (customCopywriting && typeof customCopywriting === "object" && customCopywriting[key]) {
     return customCopywriting[key];
   }
-  return DEFAULT_COPYWRITING[key] || key;
+  return fallback || DEFAULT_COPYWRITING[key] || key;
 }
 
 /**

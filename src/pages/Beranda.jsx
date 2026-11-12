@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Newspaper, Heart, MessageCircle, SmilePlus, ImagePlus, X, Trash2, ArrowLeft, BarChart3, TrendingUp, Hash, Pencil, Check } from "lucide-react";
+import { Newspaper, MessageCircle, SmilePlus, ImagePlus, X, Trash2, ArrowLeft, BarChart3, TrendingUp, Hash, Pencil, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "../context/AppContext";
 import { api, errMsg, fileUrl, uploadFile } from "../lib/api";
 import { Avatar, PageHeader, rel, ImageLightbox } from "../components/common";
-import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import PollCard, { seedPollCache } from "./chat/PollCard";
 import CreatePollDialog from "./chat/CreatePollDialog";
 
@@ -133,9 +132,37 @@ function Composer({ parentId, onPosted, placeholder }) {
   );
 }
 
-function Reactions({ p, onChange }) {
+function ReactionPicker({ p, onChange }) {
   const { me } = useApp();
+  const [open, setOpen] = useState(false);
+  const timerRef = useRef(null);
+
+  const clearTimer = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const handleMouseEnter = () => {
+    clearTimer();
+    setOpen(true);
+  };
+
+  const handleMouseLeave = () => {
+    clearTimer();
+    timerRef.current = setTimeout(() => {
+      setOpen(false);
+    }, 250);
+  };
+
+  useEffect(() => {
+    return () => clearTimer();
+  }, []);
+
   const react = (emoji) => {
+    setOpen(false);
+    clearTimer();
     // 100% Optimistic reaction toggle (0ms latency)
     const currentList = p.reactions?.[emoji] || [];
     const hasReacted = currentList.includes(me.user_id);
@@ -158,13 +185,98 @@ function Reactions({ p, onChange }) {
     });
   };
 
-  const list = Object.entries(p.reactions || {}).filter(([, ids]) => ids.length);
   return (
-    <>
-      {list.map(([e, ids]) => <button key={e} onClick={() => react(e)} className={`flex h-8 items-center gap-1 rounded-full border px-2 text-xs font-semibold ${ids.includes(me.user_id) ? "border-[var(--c-accent)] tint-accent" : "text-sub"}`} data-testid={`post-reaction-${p.id}-${e}`}><span>{e}</span><span>{ids.length}</span></button>)}
-      <Popover><PopoverTrigger asChild><button className="btn-ghost flex h-8 w-8 items-center justify-center text-sub" aria-label="Beri reaksi" data-testid={`post-react-btn-${p.id}`}><SmilePlus size={16} /></button></PopoverTrigger>
-        <PopoverContent className="flex w-auto gap-1 bg-surface p-1.5" align="start">{EMOJIS.map((e) => <button key={e} onClick={() => react(e)} className="h-9 w-9 rounded-lg text-xl hover:bg-surface2" data-testid={`post-react-option-${e}`}>{e}</button>)}</PopoverContent></Popover>
-    </>
+    <div
+      className="relative inline-flex items-center"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex h-8 items-center gap-1.5 rounded-full px-2.5 text-sm text-sub hover:bg-surface2/60 hover:text-ink transition-colors"
+        aria-label="Beri reaksi"
+        data-testid={`post-react-btn-${p.id}`}
+      >
+        <SmilePlus size={16} />
+        <span className="font-medium">React</span>
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          aria-label="Pilihan reaksi emoji"
+          className="absolute bottom-full left-0 mb-1.5 z-30 flex items-center gap-1 rounded-full border border-subtle bg-surface/95 p-1.5 shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+        >
+          {EMOJIS.map((e) => {
+            const isSelected = (p.reactions?.[e] || []).includes(me.user_id);
+            return (
+              <button
+                key={e}
+                type="button"
+                onClick={() => react(e)}
+                className={`flex h-8 w-8 items-center justify-center rounded-full text-lg transition-transform duration-150 hover:scale-125 hover:bg-surface2 active:scale-95 ${
+                  isSelected ? "bg-accent/15 scale-110" : ""
+                }`}
+                title={`Reaksi ${e}`}
+                data-testid={`post-react-option-${e}`}
+              >
+                {e}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReactionBadges({ p, onChange }) {
+  const { me } = useApp();
+  const react = (emoji) => {
+    const currentList = p.reactions?.[emoji] || [];
+    const hasReacted = currentList.includes(me.user_id);
+    const nextList = hasReacted ? currentList.filter((id) => id !== me.user_id) : [...currentList, me.user_id];
+    const nextReactions = { ...(p.reactions || {}) };
+    if (nextList.length) {
+      nextReactions[emoji] = nextList;
+    } else {
+      delete nextReactions[emoji];
+    }
+    const nextP = { ...p, reactions: nextReactions };
+    onChange(nextP);
+
+    if (String(p.id).startsWith("pst_opt_")) return;
+    api.post(`/posts/${p.id}/react`, { emoji }).then((r) => {
+      if (r.data) onChange(r.data);
+    }).catch((e) => {
+      onChange(p);
+      toast.error(errMsg(e));
+    });
+  };
+
+  const list = Object.entries(p.reactions || {}).filter(([, ids]) => ids.length);
+  if (!list.length) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {list.map(([e, ids]) => (
+        <button
+          key={e}
+          type="button"
+          onClick={() => react(e)}
+          className={`flex h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-semibold transition-colors ${
+            ids.includes(me.user_id) ? "border-[var(--c-accent)] tint-accent" : "text-sub hover:bg-surface2/60"
+          }`}
+          data-testid={`post-reaction-${p.id}-${e}`}
+        >
+          <span>{e}</span>
+          <span>{ids.length}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -172,7 +284,6 @@ function PostCard({ p, onChange, onDelete, reply }) {
   const { me, userMap, isAdmin } = useApp();
   const navigate = useNavigate();
   const author = userMap[p.author_id];
-  const isLiked = Boolean(p.liked || (Array.isArray(p.likes) && me?.user_id && p.likes.includes(me.user_id)));
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(p.text || "");
   const [editFiles, setEditFiles] = useState(p.attachments || []);
@@ -186,29 +297,6 @@ function PostCard({ p, onChange, onDelete, reply }) {
       setEditFiles(p.attachments || []);
     }
   }, [p.text, p.attachments, editing]);
-
-  const like = () => {
-    // 100% Optimistic like toggle (0ms latency)
-    const willLike = !isLiked;
-    const nextLikes = willLike
-      ? [...(p.likes || []).filter((id) => id !== me.user_id), me.user_id]
-      : (p.likes || []).filter((id) => id !== me.user_id);
-    const nextP = {
-      ...p,
-      liked: willLike,
-      like_count: nextLikes.length,
-      likes: nextLikes
-    };
-    onChange(nextP);
-
-    if (String(p.id).startsWith("pst_opt_")) return;
-    api.post(`/posts/${p.id}/like`).then((r) => {
-      if (r.data) onChange(r.data);
-    }).catch((e) => {
-      onChange(p);
-      toast.error(errMsg(e));
-    });
-  };
 
   const del = (e) => {
     e?.stopPropagation?.();
@@ -405,10 +493,20 @@ function PostCard({ p, onChange, onDelete, reply }) {
         )}
 
         {(p.poll_id || p.poll) && <div className="mt-2.5"><PollCard pollId={p.poll_id || p.poll?.id} poll={p.poll} compact /></div>}
-        <div className="mt-2 flex flex-wrap items-center gap-1">
-          <button onClick={like} className={`flex h-8 items-center gap-1.5 rounded-full px-2 text-sm ${isLiked ? "text-rose-500" : "text-sub hover:text-rose-500"}`} data-testid={`post-like-${p.id}`}><Heart size={16} fill={isLiked ? "currentColor" : "none"} />{p.like_count > 0 && p.like_count}</button>
-          {!reply && <button onClick={() => navigate(`/beranda/${p.id}`)} className="flex h-8 items-center gap-1.5 rounded-full px-2 text-sm text-sub hover:text-ink" data-testid={`post-reply-btn-${p.id}`}><MessageCircle size={16} />{p.reply_count > 0 ? p.reply_count : "Balas"}</button>}
-          <Reactions p={p} onChange={onChange} />
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <ReactionPicker p={p} onChange={onChange} />
+          {!reply && (
+            <button
+              type="button"
+              onClick={() => navigate(`/beranda/${p.id}`)}
+              className="flex h-8 items-center gap-1.5 rounded-full px-2.5 text-sm text-sub hover:bg-surface2/60 hover:text-ink transition-colors"
+              data-testid={`post-reply-btn-${p.id}`}
+            >
+              <MessageCircle size={16} />
+              <span>{p.reply_count > 0 ? p.reply_count : "Balas"}</span>
+            </button>
+          )}
+          <ReactionBadges p={p} onChange={onChange} />
         </div>
         {!reply && p.replies_preview?.length > 0 && (
           <div className="mt-2 rounded-2xl bg-surface2/60 px-3" data-testid={`post-comments-${p.id}`}>
